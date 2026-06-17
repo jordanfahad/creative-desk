@@ -1,12 +1,5 @@
 import { z } from "zod";
-import {
-  db,
-  getAssetsByIds,
-  type Asset,
-  type BrandKit,
-  type Guideline,
-  type Job,
-} from "./db";
+import { getBrandKit, listGuidelines, getAssetsByIds, type Asset, type Job } from "./db";
 
 // ── The context store ────────────────────────────────────────────────
 // "Give the model the guidelines once" = store once (brand_kit + guidelines),
@@ -35,17 +28,12 @@ function safeJsonArray(raw: string | null): string[] {
   }
 }
 
-export function assembleContext(job: Job): AssembledContext {
-  const brand = db
-    .prepare("SELECT * FROM brand_kit WHERE id = 1")
-    .get() as BrandKit | undefined;
-
-  const guidelines = db
-    .prepare("SELECT * FROM guidelines WHERE active = 1 ORDER BY created_at")
-    .all() as Guideline[];
+export async function assembleContext(job: Job): Promise<AssembledContext> {
+  const brand = await getBrandKit();
+  const guidelines = (await listGuidelines()).filter((g) => g.active);
 
   const assetIds = safeJsonArray(job.asset_ids).map(Number).filter(Number.isFinite);
-  const assets = getAssetsByIds(assetIds);
+  const assets = await getAssetsByIds(assetIds);
 
   const lines: string[] = [];
 

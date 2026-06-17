@@ -44,12 +44,12 @@ function isVideo(url: string): boolean {
 export default async function JobDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const jobId = Number(id);
-  const job = getJob(jobId);
+  const job = await getJob(jobId);
   if (!job) notFound();
 
-  const briefRow = getLatestBrief(jobId);
+  const briefRow = await getLatestBrief(jobId);
   const brief = briefRow ? parseBrief(briefRow.content) : null;
-  const renders = listRenders(jobId);
+  const renders = await listRenders(jobId);
   let assetIds: number[] = [];
   try {
     const v = JSON.parse(job.asset_ids || "[]");
@@ -57,7 +57,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
   } catch {
     /* ignore */
   }
-  const assets = getAssetsByIds(assetIds);
+  const assets = await getAssetsByIds(assetIds);
   const selected = new Set(jobPlatformKeys(job));
   const isOptimize = job.intent === "optimize";
   const isVideoJob = job.media === "video";

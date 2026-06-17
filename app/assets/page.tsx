@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 const KINDS = ["clinic", "doctor", "product", "other"];
 const QUALITIES = ["unrated", "good", "ok", "poor"];
 
-export default function AssetsPage() {
-  const assets = listAssets();
+export default async function AssetsPage() {
+  const assets = await listAssets();
 
   return (
     <main>

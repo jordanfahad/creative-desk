@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
-import { db, getJob } from "@/lib/db";
+import { supabase, getJob } from "@/lib/db";
 import { assembleContext, BriefSchema, type Brief } from "@/lib/context";
 
 export const runtime = "nodejs";
@@ -47,12 +47,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "jobId is required" }, { status: 400 });
   }
 
-  const job = getJob(jobId);
+  const job = await getJob(jobId);
   if (!job) {
     return NextResponse.json({ error: `Job ${jobId} not found` }, { status: 404 });
   }
 
-  const { block, assets } = assembleContext(job);
+  const { block, assets } = await assembleContext(job);
 
   const directorBrief = (job.brief_doc_text ?? "").trim();
 
@@ -132,23 +132,22 @@ export async function POST(req: NextRequest) {
 
   const creditEstimate = estimateCredits(brief);
 
-  // Persist the brief and advance the job to 'briefed' (still pre-approval).
-  const insert = db
-    .prepare(
-      `INSERT INTO briefs (job_id, content, credit_estimate, model)
-       VALUES (?, ?, ?, ?)`,
-    )
-    .run(jobId, JSON.stringify(brief), creditEstimate, MODEL);
-
-  db.prepare("UPDATE jobs SET status = 'briefed', updated_at = datetime('now') WHERE id = ?").run(
-    jobId,
-  );
+  // Persist the brief and advance the job to 'briefed'.
+  const { data: inserted } = await supabase
+    .from("briefs")
+    .insert({ job_id: jobId, content: JSON.stringify(brief), credit_estimate: creditEstimate, model: MODEL })
+    .select("id")
+    .single();
+  await supabase
+    .from("jobs")
+    .update({ status: "briefed", updated_at: new Date().toISOString() })
+    .eq("id", jobId);
 
   return NextResponse.json({
-    briefId: Number(insert.lastInsertRowid),
+    briefId: inserted?.id ?? null,
     jobId,
     brief,
     creditEstimate,
-    note: "No render fired. Review/edit the brief, then set the job to 'approved' to submit.",
+    note: "Brief ready. Review/edit, then Generate.",
   });
 }

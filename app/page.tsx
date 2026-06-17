@@ -12,9 +12,9 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Failed",
 };
 
-export default function Home() {
-  const jobs = listJobs();
-  const brand = getBrandKit();
+export default async function Home() {
+  const jobs = await listJobs();
+  const brand = await getBrandKit();
 
   return (
     <main>

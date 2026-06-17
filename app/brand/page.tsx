@@ -28,9 +28,9 @@ function jsonToCsv(raw: string | null): string {
   }
 }
 
-export default function BrandPage() {
-  const brand = getBrandKit();
-  const guidelines = listGuidelines();
+export default async function BrandPage() {
+  const brand = await getBrandKit();
+  const guidelines = await listGuidelines();
 
   return (
     <main>

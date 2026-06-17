@@ -1,33 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { writeFile, readFile, unlink, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import {
-  db,
+  supabase,
   getJob,
   getAssetsByIds,
   getBrandKit,
-  assetWebPath,
+  getLatestBrief,
+  listRenders,
   jobPlatformKeys,
-  type Brief as BriefRow,
-  type Asset,
 } from "@/lib/db";
+import { uploadBuffer } from "@/lib/storage";
 import { BriefSchema, type Brief } from "@/lib/context";
-import { generateImage, editImage, uploadImageToFal, enqueueVideo } from "@/lib/fal";
+import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
 import { platformOf, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
 
 export const runtime = "nodejs";
+export const maxDuration = 300; // image edits + crops can take a while (Vercel Pro)
 
-// Generate ONCE (the AI master), then fan out FREE deterministic crops + logo to
-// every selected channel. Driven by intent (optimize|create) x media (image|video).
-//   image/create   -> FLUX per shot -> master -> crop per channel
-//   image/optimize  -> Kontext per source photo -> master -> crop per channel
-//   video/optimize passthrough -> ffmpeg-finish the uploaded clip per channel
-//   video (else)    -> Kling master clip (queued) -> poll fans out per channel
-
-const STORAGE_ROOT = resolve(process.env.CREATIVE_DESK_STORAGE || "./storage");
+// Generate ONCE (AI master), fan out FREE crops + logo to every selected channel.
+// Files live in Supabase Storage; source assets are public URLs passed straight to fal.
 
 interface SubmitResult {
   group: number;
@@ -44,21 +40,16 @@ function parseColors(raw: string | null): string[] {
     return [];
   }
 }
-
-function mimeFromPath(p: string): string {
-  const ext = p.slice(p.lastIndexOf(".")).toLowerCase();
-  if (ext === ".png") return "image/png";
-  if (ext === ".webp") return "image/webp";
-  return "image/jpeg";
-}
-
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+async function fetchBuf(url: string): Promise<Buffer> {
+  return Buffer.from(await (await fetch(url)).arrayBuffer());
 }
 
 export async function POST(req: NextRequest) {
   if (!process.env.FAL_KEY) {
-    return NextResponse.json({ error: "FAL_KEY is not set in .env.local" }, { status: 500 });
+    return NextResponse.json({ error: "FAL_KEY is not set" }, { status: 500 });
   }
 
   let body: { jobId?: number };
@@ -69,13 +60,10 @@ export async function POST(req: NextRequest) {
   }
 
   const jobId = Number(body.jobId);
-  const job = getJob(jobId);
+  const job = await getJob(jobId);
   if (!job) return NextResponse.json({ error: `Job ${jobId} not found` }, { status: 404 });
 
-  // brief is optional (only create/animate need it); parse defensively
-  const briefRow = db
-    .prepare("SELECT * FROM briefs WHERE job_id = ? ORDER BY created_at DESC LIMIT 1")
-    .get(jobId) as BriefRow | undefined;
+  const briefRow = await getLatestBrief(jobId);
   let brief: Brief | null = null;
   if (briefRow) {
     const parsed = BriefSchema.safeParse(JSON.parse(briefRow.content || "null"));
@@ -87,7 +75,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Pick at least one channel to export to." }, { status: 400 });
   }
 
-  const brand = getBrandKit();
+  const brand = await getBrandKit();
   const logoOpts = {
     logoPath: brand?.logo_path ?? null,
     logoEnabled: job.logo_enabled === 1,
@@ -101,14 +89,11 @@ export async function POST(req: NextRequest) {
     const v = JSON.parse(job.asset_ids || "[]");
     if (Array.isArray(v)) assetIds = v.map(Number).filter(Number.isFinite);
   } catch {
-    /* corrupt asset_ids -> treat as none */
+    /* ignore */
   }
-  const assets = getAssetsByIds(assetIds);
+  const assets = await getAssetsByIds(assetIds);
   const imageAssets = assets.filter((a) => a.media !== "video");
   const videoAssets = assets.filter((a) => a.media === "video");
-
-  const rendersDir = join(STORAGE_ROOT, "renders");
-  await mkdir(rendersDir, { recursive: true });
   const results: SubmitResult[] = [];
 
   const insertRender = (r: {
@@ -122,43 +107,30 @@ export async function POST(req: NextRequest) {
     error?: string | null;
     meta?: unknown;
   }) =>
-    db
-      .prepare(
-        `INSERT INTO renders (job_id, brief_id, shot_index, source_asset_id, platform, request_id, status_url, status, result_url, error, attempts, meta)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-      )
-      .run(
-        jobId,
-        briefRow?.id ?? null,
-        r.group,
-        r.sourceAssetId,
-        r.platform,
-        r.request_id ?? null,
-        r.status_url ?? null,
-        r.status,
-        r.result_url ?? null,
-        r.error ?? null,
-        JSON.stringify(r.meta ?? {}),
-      );
+    supabase.from("renders").insert({
+      job_id: jobId,
+      brief_id: briefRow?.id ?? null,
+      shot_index: r.group,
+      source_asset_id: r.sourceAssetId,
+      platform: r.platform,
+      request_id: r.request_id ?? null,
+      status_url: r.status_url ?? null,
+      status: r.status,
+      result_url: r.result_url ?? null,
+      error: r.error ?? null,
+      attempts: 0,
+      meta: JSON.stringify(r.meta ?? {}),
+    });
 
-  // master image buffer -> one finished deliverable per selected channel
   const fanOutImage = async (master: Buffer, group: number, sourceAssetId: number | null, meta: object) => {
     for (const platform of platforms) {
       try {
         const finished = await finishImage(master, { platform, ...logoOpts });
-        const name = `${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.jpg`;
-        await writeFile(join(rendersDir, name), finished);
-        insertRender({
-          group,
-          sourceAssetId,
-          platform: platform.key,
-          status: "completed",
-          result_url: assetWebPath(`storage/renders/${name}`),
-          meta,
-        });
+        const url = await uploadBuffer(`renders/${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.jpg`, finished, "image/jpeg");
+        await insertRender({ group, sourceAssetId, platform: platform.key, status: "completed", result_url: url, meta });
         results.push({ group, platform: platform.key, status: "completed" });
       } catch (e) {
-        insertRender({ group, sourceAssetId, platform: platform.key, status: "failed", error: errMsg(e), meta });
+        await insertRender({ group, sourceAssetId, platform: platform.key, status: "failed", error: errMsg(e), meta });
         results.push({ group, platform: platform.key, status: "failed", error: errMsg(e) });
       }
     }
@@ -176,18 +148,13 @@ export async function POST(req: NextRequest) {
           job.brief_notes ||
           "Clean up and enhance: fix lighting, balance the composition, remove clutter.";
         if (job.combine === 1 && imageAssets.length > 1) {
-          const urls = await uploadAssets(imageAssets);
-          const master = await fetchBuf(
-            (await editImage(`Edit and combine these photos on-brand. ${instruction} ${brandHint}`, urls, MASTER_ASPECT)).url,
-          );
+          const urls = imageAssets.map((a) => a.local_path);
+          const master = await fetchBuf((await editImage(`Edit and combine these photos on-brand. ${instruction} ${brandHint}`, urls, MASTER_ASPECT)).url);
           await fanOutImage(master, 0, null, { mode: "optimize", combined: imageAssets.length });
         } else {
           for (let i = 0; i < imageAssets.length; i++) {
             try {
-              const url = await uploadAsset(imageAssets[i]);
-              const master = await fetchBuf(
-                (await editImage(`Edit and enhance this photo on-brand, keep the real subject. ${instruction} ${brandHint}`, [url], MASTER_ASPECT)).url,
-              );
+              const master = await fetchBuf((await editImage(`Edit and enhance this photo on-brand, keep the real subject. ${instruction} ${brandHint}`, [imageAssets[i].local_path], MASTER_ASPECT)).url);
               await fanOutImage(master, i, imageAssets[i].id, { mode: "optimize", asset_id: imageAssets[i].id });
             } catch (e) {
               results.push({ group: i, platform: null, status: "failed", error: errMsg(e) });
@@ -195,18 +162,12 @@ export async function POST(req: NextRequest) {
           }
         }
       } else {
-        // create from a prompt -> needs a brief
         if (!brief) {
-          return NextResponse.json(
-            { error: "Generate a brief first — Create mode builds from a prompt." },
-            { status: 400 },
-          );
+          return NextResponse.json({ error: "Generate a brief first — Create mode builds from a prompt." }, { status: 400 });
         }
         for (const shot of brief.shots) {
           try {
-            const master = await fetchBuf(
-              (await generateImage(`${shot.prompt} ${brandHint}`, MASTER_IMAGE_SIZE)).url,
-            );
+            const master = await fetchBuf((await generateImage(`${shot.prompt} ${brandHint}`, MASTER_IMAGE_SIZE)).url);
             await fanOutImage(master, shot.index, null, { mode: "create", caption: shot.caption });
           } catch (e) {
             results.push({ group: shot.index, platform: null, status: "failed", error: errMsg(e) });
@@ -222,48 +183,28 @@ export async function POST(req: NextRequest) {
         for (let i = 0; i < videoAssets.length; i++) {
           for (const platform of platforms) {
             try {
-              const out = `${jobId}-${i}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`;
-              await finishVideo(resolve(videoAssets[i].local_path), join(rendersDir, out), {
-                platform,
-                ...logoOpts,
-              });
-              insertRender({
-                group: i,
-                sourceAssetId: videoAssets[i].id,
-                platform: platform.key,
-                status: "completed",
-                result_url: assetWebPath(`storage/renders/${out}`),
-                meta: { mode: "passthrough" },
-              });
+              const url = await finishVideoToStorage(videoAssets[i].local_path, jobId, i, platform, logoOpts);
+              await insertRender({ group: i, sourceAssetId: videoAssets[i].id, platform: platform.key, status: "completed", result_url: url, meta: { mode: "passthrough" } });
               results.push({ group: i, platform: platform.key, status: "completed" });
             } catch (e) {
-              insertRender({ group: i, sourceAssetId: videoAssets[i].id, platform: platform.key, status: "failed", error: errMsg(e), meta: {} });
+              await insertRender({ group: i, sourceAssetId: videoAssets[i].id, platform: platform.key, status: "failed", error: errMsg(e), meta: {} });
               results.push({ group: i, platform: platform.key, status: "failed", error: errMsg(e) });
             }
           }
         }
       } else {
-        // video create/animate (or ai_enhance) -> one Kling master clip, queued.
         const instruction = brief?.shots?.[0]?.prompt || job.brief_notes || "An on-brand promotional clip.";
         let seedUrl: string;
         let seedAssetId: number | null = null;
         if (imageAssets.length) {
-          seedUrl = await uploadAsset(imageAssets[0]);
+          seedUrl = imageAssets[0].local_path;
           seedAssetId = imageAssets[0].id;
         } else {
           seedUrl = (await generateImage(`${instruction} ${brandHint}`, MASTER_IMAGE_SIZE)).url;
         }
         const maxDur = Math.max(5, ...platforms.map((p) => p.maxDurationSeconds ?? 5));
         const sub = await enqueueVideo(`${instruction} ${brandHint}`, seedUrl, maxDur);
-        insertRender({
-          group: 0,
-          sourceAssetId: seedAssetId,
-          platform: null, // master; poll fans out to channels
-          status: "processing",
-          request_id: sub.requestId,
-          status_url: sub.model,
-          meta: { master: true, seedUrl },
-        });
+        await insertRender({ group: 0, sourceAssetId: seedAssetId, platform: null, status: "processing", request_id: sub.requestId, status_url: sub.model, meta: { master: true } });
         results.push({ group: 0, platform: null, status: "processing" });
       }
     }
@@ -271,45 +212,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: errMsg(e) }, { status: 502 });
   }
 
-  // ── job status rollup ──
-  const counts = db
-    .prepare(
-      `SELECT
-         SUM(CASE WHEN status IN ('queued','processing') THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS done,
-         SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed,
-         COUNT(*) AS total
-       FROM renders WHERE job_id = ?`,
-    )
-    .get(jobId) as { pending: number; done: number; failed: number; total: number };
-
+  // ── job status rollup (computed in JS) ──
+  const rows = await listRenders(jobId);
+  const pending = rows.filter((r) => r.status === "queued" || r.status === "processing").length;
+  const done = rows.filter((r) => r.status === "completed").length;
   let status = job.status;
-  if (counts.total === 0) {
-    /* nothing inserted; an error was already returned above in most paths */
-  } else if (counts.pending > 0) {
-    status = "submitted";
-  } else if (counts.done > 0) {
-    status = "done"; // may be partial; failed rows are shown in the gallery
-  } else {
-    status = "failed";
+  if (rows.length) {
+    status = pending > 0 ? "submitted" : done > 0 ? "done" : "failed";
   }
   if (status !== job.status) {
-    db.prepare("UPDATE jobs SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, jobId);
+    await supabase.from("jobs").update({ status, updated_at: new Date().toISOString() }).eq("id", jobId);
   }
 
   return NextResponse.json({ jobId, intent: job.intent, media: job.media, status, submitted: results });
 }
 
-// ── helpers ──
-async function uploadAsset(a: Asset): Promise<string> {
-  const buf = await readFile(resolve(a.local_path));
-  return uploadImageToFal(buf, mimeFromPath(a.local_path));
-}
-async function uploadAssets(list: Asset[]): Promise<string[]> {
-  const out: string[] = [];
-  for (const a of list) out.push(await uploadAsset(a));
-  return out;
-}
-async function fetchBuf(url: string): Promise<Buffer> {
-  return Buffer.from(await (await fetch(url)).arrayBuffer());
+// finishVideo writes to a file; do it in a temp dir, upload to storage, clean up.
+async function finishVideoToStorage(
+  inputUrl: string,
+  jobId: number,
+  group: number,
+  platform: Platform,
+  logoOpts: { logoPath: string | null; logoEnabled: boolean; logoPosition: LogoPosition },
+): Promise<string> {
+  const dir = join(tmpdir(), "creative-desk");
+  await mkdir(dir, { recursive: true });
+  const out = join(dir, `${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`);
+  await finishVideo(inputUrl, out, { platform, ...logoOpts });
+  const buf = await readFile(out);
+  const url = await uploadBuffer(`renders/${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
+  await unlink(out).catch(() => {});
+  return url;
 }
