@@ -1,0 +1,19 @@
+# dependencies
+/node_modules
+
+# next
+/.next
+/out
+
+# local data store (SQLite) + uploaded assets — never commit
+/data
+/storage
+
+# env — contains the Higgsfield + OpenAI secrets
+.env.local
+.env*.local
+
+# misc
+*.log
+.DS_Store
+next-env.d.ts
