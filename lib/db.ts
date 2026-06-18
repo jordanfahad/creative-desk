@@ -6,6 +6,7 @@ import { publicUrl, resolveDocUrl } from "./storage";
 
 export interface BrandKit {
   id: number;
+  project_id: number;
   clinic_name: string | null;
   logo_path: string | null;
   tagline: string | null;
@@ -19,6 +20,7 @@ export interface BrandKit {
 
 export interface Guideline {
   id: number;
+  project_id: number;
   title: string;
   body: string;
   source: string;
@@ -29,6 +31,7 @@ export interface Guideline {
 
 export interface Asset {
   id: number;
+  project_id: number;
   filename: string;
   local_path: string; // public URL of the stored object
   public_url: string | null;
@@ -41,6 +44,7 @@ export interface Asset {
 
 export interface Job {
   id: number;
+  project_id: number;
   title: string;
   mode: "static" | "dynamic";
   goal: string | null;
@@ -99,26 +103,26 @@ function logErr(where: string, error: unknown): void {
   if (error) console.error(`[db] ${where}:`, (error as { message?: string })?.message ?? error);
 }
 
-export async function getBrandKit(): Promise<BrandKit | undefined> {
-  const { data, error } = await supabase.from("brand_kit").select("*").eq("id", 1).maybeSingle();
+export async function getBrandKit(projectId: number): Promise<BrandKit | undefined> {
+  const { data, error } = await supabase.from("brand_kit").select("*").eq("project_id", projectId).maybeSingle();
   logErr("getBrandKit", error);
   return (data as BrandKit) ?? undefined;
 }
 
-export async function listGuidelines(): Promise<Guideline[]> {
-  const { data, error } = await supabase.from("guidelines").select("*").order("created_at");
+export async function listGuidelines(projectId: number): Promise<Guideline[]> {
+  const { data, error } = await supabase.from("guidelines").select("*").eq("project_id", projectId).order("created_at");
   logErr("listGuidelines", error);
   return (data as Guideline[]) ?? [];
 }
 
-export async function listAssets(): Promise<Asset[]> {
-  const { data, error } = await supabase.from("assets").select("*").order("created_at", { ascending: false });
+export async function listAssets(projectId: number): Promise<Asset[]> {
+  const { data, error } = await supabase.from("assets").select("*").eq("project_id", projectId).order("created_at", { ascending: false });
   logErr("listAssets", error);
   return (data as Asset[]) ?? [];
 }
 
-export async function listJobs(): Promise<Job[]> {
-  const { data, error } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
+export async function listJobs(projectId: number): Promise<Job[]> {
+  const { data, error } = await supabase.from("jobs").select("*").eq("project_id", projectId).order("created_at", { ascending: false });
   logErr("listJobs", error);
   return (data as Job[]) ?? [];
 }

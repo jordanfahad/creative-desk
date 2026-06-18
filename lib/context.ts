@@ -30,8 +30,8 @@ function safeJsonArray(raw: string | null): string[] {
 }
 
 export async function assembleContext(job: Job): Promise<AssembledContext> {
-  const brand = await getBrandKit();
-  const guidelines = (await listGuidelines()).filter((g) => g.active);
+  const brand = await getBrandKit(job.project_id);
+  const guidelines = (await listGuidelines(job.project_id)).filter((g) => g.active);
 
   const assetIds = safeJsonArray(job.asset_ids).map(Number).filter(Number.isFinite);
   const assets = await getAssetsByIds(assetIds);

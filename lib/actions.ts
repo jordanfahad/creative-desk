@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { randomUUID } from "node:crypto";
 import { supabase } from "./db";
+import { getActiveProjectId, PROJECT_COOKIE, slugify } from "./project";
 import { uploadBuffer, uploadPrivate } from "./storage";
 import { parseBrief } from "./context";
 import { extractPdfText } from "./pdf";
@@ -71,10 +73,11 @@ const now = () => new Date().toISOString();
 // ── brand kit + logo + guidelines ──
 
 export async function saveBrandKit(formData: FormData): Promise<void> {
+  const pid = await getActiveProjectId();
   const get = (k: string) => (formData.get(k) ?? "").toString().trim() || null;
-  await supabase.from("brand_kit").upsert(
-    {
-      id: 1,
+  await supabase
+    .from("brand_kit")
+    .update({
       clinic_name: get("clinic_name"),
       tagline: get("tagline"),
       voice: get("voice"),
@@ -83,9 +86,8 @@ export async function saveBrandKit(formData: FormData): Promise<void> {
       do_not_say: csvToJson(formData.get("do_not_say")),
       boilerplate: get("boilerplate"),
       updated_at: now(),
-    },
-    { onConflict: "id" },
-  );
+    })
+    .eq("project_id", pid);
   revalidatePath("/brand");
 }
 
@@ -95,13 +97,15 @@ export async function uploadLogo(formData: FormData): Promise<void> {
   // Raster image only (no SVG — a stored SVG served from storage is an XSS vector), with a size cap.
   const ok = /^image\/(png|jpe?g|webp|gif)$/i.test(file.type) || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
   if (!ok || file.size > MAX_FILE_BYTES) return;
+  const pid = await getActiveProjectId();
   const url = await uploadFile(file, "brand");
-  await supabase.from("brand_kit").upsert({ id: 1, logo_path: url, updated_at: now() }, { onConflict: "id" });
+  await supabase.from("brand_kit").update({ logo_path: url, updated_at: now() }).eq("project_id", pid);
   revalidatePath("/brand");
 }
 
 export async function removeLogo(): Promise<void> {
-  await supabase.from("brand_kit").update({ logo_path: null, updated_at: now() }).eq("id", 1);
+  const pid = await getActiveProjectId();
+  await supabase.from("brand_kit").update({ logo_path: null, updated_at: now() }).eq("project_id", pid);
   revalidatePath("/brand");
 }
 
@@ -109,7 +113,8 @@ export async function addGuideline(formData: FormData): Promise<void> {
   const title = (formData.get("title") ?? "").toString().trim();
   const body = (formData.get("body") ?? "").toString().trim();
   if (!title || !body) return;
-  await supabase.from("guidelines").insert({ title, body, source: normalizeSource(formData.get("source")), active: 1 });
+  const pid = await getActiveProjectId();
+  await supabase.from("guidelines").insert({ project_id: pid, title, body, source: normalizeSource(formData.get("source")), active: 1 });
   revalidatePath("/brand");
 }
 
@@ -126,9 +131,10 @@ export async function uploadGuideline(formData: FormData): Promise<void> {
     text = "";
   }
   if (!text) return;
+  const pid = await getActiveProjectId();
   // Confidential — store in the private bucket under a non-guessable key.
   const key = await uploadPrivate(`guidelines/${randomUUID()}.pdf`, buf, "application/pdf");
-  await supabase.from("guidelines").insert({ title, body: text, source: normalizeSource(formData.get("source")), doc_path: key, active: 1 });
+  await supabase.from("guidelines").insert({ project_id: pid, title, body: text, source: normalizeSource(formData.get("source")), doc_path: key, active: 1 });
   revalidatePath("/brand");
 }
 
@@ -154,8 +160,10 @@ export async function uploadAsset(formData: FormData): Promise<void> {
   if (!(file instanceof File) || file.size === 0) return;
   const m = mediaOf(file);
   if (!m || file.size > MAX_FILE_BYTES) return;
+  const pid = await getActiveProjectId();
   const url = await uploadFile(file, "assets");
   await supabase.from("assets").insert({
+    project_id: pid,
     filename: file.name,
     local_path: url,
     kind: (formData.get("kind") ?? "clinic").toString(),
@@ -172,7 +180,7 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
   const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
   if (!files.length) return;
 
-  const { data: job } = await supabase.from("jobs").select("asset_ids, media").eq("id", jobId).maybeSingle();
+  const { data: job } = await supabase.from("jobs").select("asset_ids, media, project_id").eq("id", jobId).maybeSingle();
   if (!job) return;
 
   const newIds: number[] = [];
@@ -182,7 +190,7 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
     const url = await uploadFile(file, "assets");
     const { data } = await supabase
       .from("assets")
-      .insert({ filename: file.name, local_path: url, kind: "creative", media: m, quality: "good" })
+      .insert({ project_id: job.project_id, filename: file.name, local_path: url, kind: "creative", media: m, quality: "good" })
       .select("id")
       .single();
     if (data?.id) newIds.push(Number(data.id));
@@ -230,6 +238,7 @@ export async function createJob(formData: FormData): Promise<void> {
   const intent = (formData.get("intent") ?? "create").toString();
   const media = (formData.get("media") ?? "image").toString();
   if (!title || !INTENTS.has(intent) || !MEDIAS.has(media)) return;
+  const pid = await getActiveProjectId();
   const mode = media === "video" ? "dynamic" : "static";
   const image_mode = intent === "create" ? "text" : "edit";
   const video_mode = intent === "optimize" ? "passthrough" : "animate";
@@ -237,6 +246,7 @@ export async function createJob(formData: FormData): Promise<void> {
   const { data } = await supabase
     .from("jobs")
     .insert({
+      project_id: pid,
       title, mode, intent, media, image_mode, video_mode,
       platforms: JSON.stringify(defaultPlatforms()),
       asset_ids: "[]", status: "draft", combine: 0, platform: "gmb_square",
@@ -247,6 +257,31 @@ export async function createJob(formData: FormData): Promise<void> {
 
   revalidatePath("/");
   if (data?.id) redirect(`/jobs/${data.id}`);
+}
+
+// ── projects (brands / workspaces) ──
+
+export async function createProject(formData: FormData): Promise<void> {
+  const name = (formData.get("name") ?? "").toString().trim();
+  if (!name) return;
+  let slug = slugify(name);
+  const { data: clash } = await supabase.from("cd_projects").select("id").eq("slug", slug).maybeSingle();
+  if (clash) slug = `${slug}-${randomUUID().slice(0, 4)}`;
+  const { data: proj } = await supabase.from("cd_projects").insert({ name, slug }).select("id").single();
+  if (!proj?.id) return;
+  // Every project owns exactly one brand_kit row (id kept = project id so ids stay unique).
+  await supabase.from("brand_kit").insert({ id: proj.id, project_id: proj.id, clinic_name: name, updated_at: now() });
+  (await cookies()).set(PROJECT_COOKIE, String(proj.id), { sameSite: "lax", path: "/" });
+  revalidatePath("/");
+  redirect("/brand");
+}
+
+export async function switchProject(formData: FormData): Promise<void> {
+  const id = Number(formData.get("project_id"));
+  if (!Number.isFinite(id)) return;
+  (await cookies()).set(PROJECT_COOKIE, String(id), { sameSite: "lax", path: "/" });
+  revalidatePath("/", "layout");
+  redirect("/");
 }
 
 export async function setProduction(formData: FormData): Promise<void> {

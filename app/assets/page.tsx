@@ -1,5 +1,6 @@
 import { listAssets, assetWebPath } from "@/lib/db";
 import { uploadAsset, updateAsset, deleteAsset } from "@/lib/actions";
+import { getActiveProject } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -7,14 +8,15 @@ const KINDS = ["clinic", "doctor", "product", "other"];
 const QUALITIES = ["unrated", "good", "ok", "poor"];
 
 export default async function AssetsPage() {
-  const assets = await listAssets();
+  const project = await getActiveProject();
+  const assets = await listAssets(project?.id ?? 1);
 
   return (
     <main>
       <h1>Assets</h1>
       <p className="muted" style={{ marginTop: 0 }}>
-        Upload clinic / doctor shots and tag their quality. Selected assets are the
-        source stills a brief builds from. Files live in <code>./storage</code>.
+        Upload source photos and clips for <strong>{project?.name ?? "this project"}</strong> and tag
+        their quality. They become the source material an optimize job draws from.
       </p>
 
       <form action={uploadAsset} className="card">

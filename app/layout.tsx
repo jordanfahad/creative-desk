@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import "./globals.css";
+import { listProjects, getActiveProjectId } from "@/lib/project";
+import { switchProject } from "@/lib/actions";
+import ProjectSwitcher from "./ProjectSwitcher";
 
 export const metadata = {
-  title: "Creative Desk · Dental Nation",
-  description: "On-brand creative production for Dental Nation — optimize and create for every channel.",
+  title: "Creative Desk",
+  description: "On-brand creative production for every project — optimize and create for every channel.",
 };
 
-// Small brand mark: a navy rounded square with a mint "smile" arc — evokes
-// Dental Nation ("Beyond Smiles") without depending on the uploaded logo.
+// Small brand mark: a navy rounded square with a mint "smile" arc.
 function BrandMark() {
   return (
     <svg className="brand-mark" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
@@ -19,22 +21,27 @@ function BrandMark() {
   );
 }
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const [projects, activeId] = await Promise.all([listProjects(), getActiveProjectId()]);
+
   return (
     <html lang="en">
       <body>
         <nav className="nav">
           <Link href="/" className="brand">
             <BrandMark />
-            <span>
-              Creative Desk <span className="sub">· Dental Nation</span>
-            </span>
+            <span>Creative Desk</span>
           </Link>
+          {projects.length > 0 && (
+            <ProjectSwitcher projects={projects} activeId={activeId} switchAction={switchProject} />
+          )}
           <span className="spacer" />
           <Link href="/">Jobs</Link>
           <Link href="/jobs/new">New job</Link>
           <Link href="/assets">Assets</Link>
           <Link href="/brand">Brand kit</Link>
+          <Link href="/projects">Projects</Link>
+          <Link href="/knowledge">Knowledge</Link>
         </nav>
         <div className="container">{children}</div>
       </body>

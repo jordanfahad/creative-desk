@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { listJobs, getBrandKit } from "@/lib/db";
+import { listJobs } from "@/lib/db";
+import { getActiveProject } from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +14,14 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function Home() {
-  const jobs = await listJobs();
-  const brand = await getBrandKit();
+  const project = await getActiveProject();
+  const jobs = await listJobs(project?.id ?? 1);
 
   return (
     <main>
       <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
-        <h1 style={{ marginBottom: 4 }}>Creative Desk</h1>
-        <span className="small muted">{brand?.clinic_name ?? "set up the brand kit"}</span>
+        <h1 style={{ marginBottom: 4 }}>{project?.name ?? "Creative Desk"}</h1>
+        <span className="small muted">Creative Desk</span>
       </div>
       <p className="muted" style={{ marginTop: 0 }}>
         Optimize an existing creative or make a new one — branded and sized for every

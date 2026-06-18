@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
 async function fanOutVideo(master: Render, masterUrl: string) {
   const job = await getJob(master.job_id);
   if (!job) return;
-  const brand = await getBrandKit();
+  const brand = await getBrandKit(job.project_id);
   const logoOpts = {
     logoPath: brand?.logo_path ?? null,
     logoEnabled: job.logo_enabled === 1,

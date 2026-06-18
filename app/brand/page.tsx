@@ -1,4 +1,5 @@
 import { getBrandKit, listGuidelines, assetWebPath, resolveDocUrl } from "@/lib/db";
+import { getActiveProject } from "@/lib/project";
 import {
   saveBrandKit,
   uploadLogo,
@@ -29,8 +30,9 @@ function jsonToCsv(raw: string | null): string {
 }
 
 export default async function BrandPage() {
-  const brand = await getBrandKit();
-  const guidelines = await listGuidelines();
+  const project = await getActiveProject();
+  const brand = await getBrandKit(project?.id ?? 1);
+  const guidelines = await listGuidelines(project?.id ?? 1);
   // Confidential guideline PDFs are served via short-lived signed URLs.
   const docUrls = new Map<number, string>();
   await Promise.all(
@@ -44,10 +46,11 @@ export default async function BrandPage() {
 
   return (
     <main>
-      <h1>Brand kit</h1>
+      <h1>{project?.name ?? "Brand kit"} · Brand kit</h1>
       <p className="muted" style={{ marginTop: 0 }}>
-        Stored once, re-injected into every brief. This is the context the model
-        plans against — including the hard guardrails it must never violate.
+        Set once for this project — logo, palette, voice, guardrails and guidelines are
+        re-injected into every prompt for <strong>{project?.name ?? "this brand"}</strong>. Switch
+        projects from the top bar to manage another brand.
       </p>
 
       <form action={saveBrandKit} className="card">
