@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 import { randomUUID } from "node:crypto";
 import { supabase } from "./db";
 import { uploadBuffer, uploadPrivate } from "./storage";
-import { BriefSchema } from "./context";
+import { parseBrief } from "./context";
 import { extractPdfText } from "./pdf";
 import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms } from "./platform";
+import { STYLE_KEYS } from "./style";
 
 const INTENTS = new Set(["optimize", "create"]);
 const MEDIAS = new Set(["image", "video"]);
@@ -54,6 +55,7 @@ function normalizeSource(raw: FormDataEntryValue | null): string {
 function readSettings(formData: FormData) {
   const pos = (formData.get("logo_position") ?? "bottom-right").toString();
   const vm = (formData.get("video_mode") ?? "animate").toString();
+  const style = (formData.get("style") ?? "auto").toString();
   const platforms = formData.getAll("platforms").map((v) => v.toString()).filter((k) => PLATFORMS[k]);
   return {
     platforms: JSON.stringify(platforms.length ? platforms : defaultPlatforms()),
@@ -61,6 +63,7 @@ function readSettings(formData: FormData) {
     logo_position: (LOGO_POSITIONS as readonly string[]).includes(pos) ? pos : "bottom-right",
     combine: formData.get("combine") ? 1 : 0,
     video_mode: VIDEO_MODES.has(vm) ? vm : "animate",
+    style: STYLE_KEYS.includes(style) ? style : "auto",
   };
 }
 const now = () => new Date().toISOString();
@@ -303,15 +306,9 @@ export async function saveBriefEdit(formData: FormData): Promise<void> {
   const jobId = Number(formData.get("job_id"));
   const content = (formData.get("content") ?? "").toString();
   if (!Number.isFinite(briefId)) return;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return;
-  }
-  const result = BriefSchema.safeParse(parsed);
-  if (!result.success) return;
-  const credit = result.data.mode === "static" ? result.data.shots.length : result.data.shots.length * 4;
-  await supabase.from("briefs").update({ content: JSON.stringify(result.data), credit_estimate: credit, edited: 1 }).eq("id", briefId);
+  const data = parseBrief(content);
+  if (!data) return;
+  const credit = data.mode === "static" ? data.shots.length : data.shots.length * 4;
+  await supabase.from("briefs").update({ content: JSON.stringify(data), credit_estimate: credit, edited: 1 }).eq("id", briefId);
   if (Number.isFinite(jobId)) revalidatePath(`/jobs/${jobId}`);
 }

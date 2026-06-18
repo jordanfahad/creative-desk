@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getBrandKit, listGuidelines, getAssetsByIds, type Asset, type Job } from "./db";
+import { styleGuidance, styleLabel, BASE_NEGATIVE } from "./style";
 
 // ── The context store ────────────────────────────────────────────────
 // "Give the model the guidelines once" = store once (brand_kit + guidelines),
@@ -124,6 +125,12 @@ export const ShotSchema = z.object({
     .string()
     .max(500)
     .describe("camera/subject motion for a video clip; empty string for a still"),
+  negative: z
+    .string()
+    .max(600)
+    .describe(
+      "a concise comma-separated list of things to AVOID in this render (artifacts, off-brand elements, anything the guardrails forbid). Used as the video negative prompt.",
+    ),
   aspect_ratio: z.string().describe("e.g. 9:16, 1:1, 16:9"),
   duration_seconds: z
     .number()
@@ -149,6 +156,24 @@ export const BriefSchema = z.object({
 
 export type Brief = z.infer<typeof BriefSchema>;
 export type Shot = z.infer<typeof ShotSchema>;
+
+// Tolerant parse for STORED briefs: fills fields added after a brief was saved
+// (e.g. `negative`) so older briefs still load instead of vanishing. The OpenAI
+// call keeps the strict schema; this is only for reading what's already in the DB.
+export function parseBrief(content: string | null): Brief | null {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(content || "null");
+  } catch {
+    return null;
+  }
+  if (obj && typeof obj === "object" && Array.isArray((obj as { shots?: unknown }).shots)) {
+    const o = obj as { shots: Array<Record<string, unknown>> };
+    o.shots = o.shots.map((s) => ({ motion: "", negative: "", ...s }));
+  }
+  const r = BriefSchema.safeParse(obj);
+  return r.success ? r.data : null;
+}
 
 // ── Prompt-engineer system message ───────────────────────────────────
 // Turns a short human direction + the full brand context into a system prompt
@@ -178,6 +203,10 @@ export function briefSystemPrompt(job: Job, block: string, directorBrief: string
           "",
         ]
       : []),
+    `# VISUAL STYLE: ${styleLabel(job.style)}`,
+    styleGuidance(job.style),
+    "Apply this style consistently across every shot while staying on-brand.",
+    "",
     "# HOW TO WRITE EACH shot.prompt (this is the whole job)",
     "Write each prompt as ONE vivid, self-contained paragraph (45-120 words) that nails:",
     "- SUBJECT & wardrobe: real, relatable, diverse people with genuine warm expressions; for dental, clean NATURAL smiles — never exaggerated or unnaturally white teeth.",
@@ -208,6 +237,7 @@ export function briefSystemPrompt(job: Job, block: string, directorBrief: string
     `- Honor EVERY CEO directive and creative guideline above — they outrank your own taste.`,
     "- Respect every hard guardrail. No medical-outcome claims, ever.",
     isOptimize ? "- Reference each source asset id in source_asset_id." : "- source_asset_id = null (text-to-image).",
+    `- Set each shot's \`negative\` to a concise avoid-list that EXTENDS this baseline (add anything specific to the brief/guardrails): ${BASE_NEGATIVE}`,
     "",
     `Return ${shotCount} in the structured brief. concept = one line on the idea. post_caption = a short on-brand caption (no discounts/claims). assembly_instructions = how to finish (corner logo, caption, music mood).`,
   ].join("\n");

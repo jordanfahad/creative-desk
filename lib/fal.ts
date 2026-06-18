@@ -95,12 +95,18 @@ export async function enqueueVideo(
   prompt: string,
   imageUrl: string,
   durationSeconds = 5,
+  negativePrompt = "",
 ): Promise<VideoSubmission> {
   ensureConfigured();
   // Kling supports "5" | "10"; the seed image's aspect drives the clip aspect.
   const duration = durationSeconds >= 10 ? "10" : "5";
   const res = await fal.queue.submit(FAL_VIDEO_MODEL, {
-    input: { prompt, image_url: imageUrl, duration },
+    input: {
+      prompt,
+      image_url: imageUrl,
+      duration,
+      ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
+    },
   });
   return { requestId: res.request_id, model: FAL_VIDEO_MODEL };
 }

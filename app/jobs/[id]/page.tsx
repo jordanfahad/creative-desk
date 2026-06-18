@@ -9,7 +9,7 @@ import {
   resolveDocUrl,
   jobPlatformKeys,
 } from "@/lib/db";
-import { BriefSchema, type Brief } from "@/lib/context";
+import { parseBrief, type Brief } from "@/lib/context";
 import {
   deleteJob,
   saveBriefEdit,
@@ -21,6 +21,7 @@ import {
   removeJobAsset,
 } from "@/lib/actions";
 import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS } from "@/lib/platform";
+import { STYLE_PRESETS } from "@/lib/style";
 import JobActions from "./JobActions";
 
 export const dynamic = "force-dynamic";
@@ -34,10 +35,6 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Failed",
 };
 
-function parseBrief(content: string): Brief | null {
-  const r = BriefSchema.safeParse(JSON.parse(content || "null"));
-  return r.success ? r.data : null;
-}
 function isVideo(url: string): boolean {
   return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
 }
@@ -198,6 +195,16 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
           ))}
 
           <div className="row" style={{ gap: 20, marginTop: 6, flexWrap: "wrap" }}>
+            <div className="row" style={{ gap: 6 }}>
+              <span className="small muted">style</span>
+              <select name="style" defaultValue={job.style} style={{ width: "auto" }}>
+                {STYLE_PRESETS.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <label className="pill-check" style={{ margin: 0 }}>
               <input type="checkbox" name="logo_enabled" defaultChecked={job.logo_enabled === 1} /> Brand logo
             </label>

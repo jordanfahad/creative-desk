@@ -52,6 +52,7 @@ export interface Job {
   platforms: string;
   video_mode: "passthrough" | "ai_enhance" | "animate" | "generate";
   image_mode: "text" | "edit" | "generate";
+  style: string;
   combine: number;
   platform: string;
   logo_enabled: number;

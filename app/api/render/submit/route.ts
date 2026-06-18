@@ -13,11 +13,12 @@ import {
   jobPlatformKeys,
 } from "@/lib/db";
 import { uploadBuffer } from "@/lib/storage";
-import { BriefSchema, type Brief } from "@/lib/context";
+import { parseBrief, type Brief } from "@/lib/context";
 import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
 import { platformOf, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
+import { BASE_NEGATIVE } from "@/lib/style";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // image edits + crops can take a while (Vercel Pro)
@@ -66,11 +67,7 @@ export async function POST(req: NextRequest) {
   if (!job) return NextResponse.json({ error: `Job ${jobId} not found` }, { status: 404 });
 
   const briefRow = await getLatestBrief(jobId);
-  let brief: Brief | null = null;
-  if (briefRow) {
-    const parsed = BriefSchema.safeParse(JSON.parse(briefRow.content || "null"));
-    brief = parsed.success ? parsed.data : null;
-  }
+  const brief: Brief | null = briefRow ? parseBrief(briefRow.content) : null;
 
   const platforms: Platform[] = jobPlatformKeys(job).map(platformOf);
   if (!platforms.length) {
@@ -227,7 +224,8 @@ export async function POST(req: NextRequest) {
           seedUrl = (await generateImage(seedPrompt, MASTER_IMAGE_SIZE)).url;
         }
         const maxDur = Math.max(5, ...platforms.map((p) => p.maxDurationSeconds ?? 5));
-        const sub = await enqueueVideo(instruction, seedUrl, maxDur);
+        const negative = shot0?.negative || BASE_NEGATIVE;
+        const sub = await enqueueVideo(instruction, seedUrl, maxDur, negative);
         await insertRender({ group: 0, sourceAssetId: seedAssetId, platform: null, status: "processing", request_id: sub.requestId, status_url: sub.model, meta: { master: true } });
         results.push({ group: 0, platform: null, status: "processing" });
       }
