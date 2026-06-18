@@ -94,8 +94,9 @@ export default function KnowledgePage() {
         <h3 style={{ marginTop: 0 }}>Projects</h3>
         <p style={{ marginBottom: 0 }}>
           Each <strong>project</strong> is a separate brand with its own logo, palette, voice,
-          guidelines, assets and jobs. Switch projects from the dropdown in the top bar, or add a new
-          one on <Link href="/projects">Projects</Link>. Set the brand kit up once per project.
+          guidelines, assets and jobs (Dental Nation, Balenciaga, …). Switch projects from the dropdown
+          in the top bar, or add a new one on <Link href="/projects">Projects</Link>. Set the brand kit
+          up once per project.
         </p>
       </div>
 
@@ -227,7 +228,7 @@ export default function KnowledgePage() {
           ["How do guidelines and CEO input get used?", "Active guidelines are injected into every optimized prompt. CEO directives are weighted highest and override creative-team guidance on conflict."],
           ["Why is video slow?", "AI video (Kling) genuinely takes a few minutes to render. The page polls automatically — keep it open and the channels fill in when it’s ready. ‘Optimize video’ (resize only) is fast."],
           ["Can I edit the AI’s prompt before generating?", "Yes. After ✨ Optimize, the prompt is shown and editable (open ‘Edit prompt’). Tweak it, save, then Generate."],
-          ["What are projects for?", "Each project is a separate brand (Dental Nation, Cicabelle, …) with its own logo, palette, guidelines, assets and jobs. Switch from the top-bar dropdown; add new ones on the Projects page."],
+          ["What are projects for?", "Each project is a separate brand (Dental Nation, Balenciaga, …) with its own logo, palette, guidelines, assets and jobs. Switch from the top-bar dropdown; add new ones on the Projects page. You can delete a project (and everything in it) from the Projects page."],
           ["Which channels/sizes are supported?", "GMB (square, landscape, cover), paid social (Meta feed/story/reel, link), and organic (IG feed/story/reel, FB, TikTok, YouTube short/thumbnail, Pinterest). Each exports at its exact dimensions."],
           ["Can I upload a guideline PDF on the website?", "PDF text extraction currently runs best from the local app. On the hosted site, paste the guideline text instead (Add guideline → text). Your existing brand PDFs are already loaded."],
         ].map(([q, a], i) => (

@@ -5,8 +5,9 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { randomUUID } from "node:crypto";
 import { supabase } from "./db";
+import { BUCKET } from "./supabase";
 import { getActiveProjectId, PROJECT_COOKIE, slugify } from "./project";
-import { uploadBuffer, uploadPrivate } from "./storage";
+import { uploadBuffer, uploadPrivate, PRIVATE_BUCKET } from "./storage";
 import { parseBrief } from "./context";
 import { extractPdfText } from "./pdf";
 import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms } from "./platform";
@@ -282,6 +283,63 @@ export async function switchProject(formData: FormData): Promise<void> {
   (await cookies()).set(PROJECT_COOKIE, String(id), { sameSite: "lax", path: "/" });
   revalidatePath("/", "layout");
   redirect("/");
+}
+
+// public storage key from a stored public URL (null for private keys / nothing)
+function pubKey(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const marker = `/public/${BUCKET}/`;
+  const i = url.indexOf(marker);
+  return i === -1 ? null : url.slice(i + marker.length);
+}
+
+export async function deleteProject(formData: FormData): Promise<void> {
+  const id = Number(formData.get("project_id"));
+  if (!Number.isFinite(id)) return;
+  const { data: all } = await supabase.from("cd_projects").select("id");
+  if (!all || all.length <= 1) return; // keep at least one project
+
+  const { data: jobs } = await supabase.from("jobs").select("id, brief_doc_path").eq("project_id", id);
+  const jobIds = (jobs ?? []).map((j) => j.id);
+
+  // collect storage objects to remove (best-effort)
+  const pubKeys: string[] = [];
+  const privKeys: string[] = [];
+  const { data: assets } = await supabase.from("assets").select("local_path").eq("project_id", id);
+  for (const a of assets ?? []) { const k = pubKey(a.local_path); if (k) pubKeys.push(k); }
+  if (jobIds.length) {
+    const { data: renders } = await supabase.from("renders").select("result_url").in("job_id", jobIds);
+    for (const r of renders ?? []) { const k = pubKey(r.result_url); if (k) pubKeys.push(k); }
+  }
+  const { data: bk } = await supabase.from("brand_kit").select("logo_path").eq("project_id", id).maybeSingle();
+  { const k = pubKey(bk?.logo_path); if (k) pubKeys.push(k); }
+  const { data: guides } = await supabase.from("guidelines").select("doc_path").eq("project_id", id);
+  for (const g of guides ?? []) { if (g.doc_path && !/^https?:/.test(g.doc_path)) privKeys.push(g.doc_path); }
+  for (const j of jobs ?? []) { if (j.brief_doc_path && !/^https?:/.test(j.brief_doc_path)) privKeys.push(j.brief_doc_path); }
+
+  // delete DB rows (children first)
+  if (jobIds.length) {
+    await supabase.from("renders").delete().in("job_id", jobIds);
+    await supabase.from("briefs").delete().in("job_id", jobIds);
+  }
+  await supabase.from("jobs").delete().eq("project_id", id);
+  await supabase.from("assets").delete().eq("project_id", id);
+  await supabase.from("guidelines").delete().eq("project_id", id);
+  await supabase.from("brand_kit").delete().eq("project_id", id);
+  await supabase.from("cd_projects").delete().eq("id", id);
+
+  // remove storage (best-effort; ignore failures)
+  if (pubKeys.length) await supabase.storage.from(BUCKET).remove(pubKeys);
+  if (privKeys.length) await supabase.storage.from(PRIVATE_BUCKET).remove(privKeys);
+
+  // if the deleted project was active, switch to the first remaining one
+  const remaining = all.filter((p) => p.id !== id);
+  const activeRaw = (await cookies()).get(PROJECT_COOKIE)?.value;
+  if (!activeRaw || Number(activeRaw) === id) {
+    (await cookies()).set(PROJECT_COOKIE, String(remaining[0].id), { sameSite: "lax", path: "/" });
+  }
+  revalidatePath("/", "layout");
+  redirect("/projects");
 }
 
 export async function setProduction(formData: FormData): Promise<void> {

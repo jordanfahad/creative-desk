@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listProjects, getActiveProjectId } from "@/lib/project";
-import { createProject, switchProject } from "@/lib/actions";
+import { createProject, switchProject, deleteProject } from "@/lib/actions";
+import DeleteProjectButton from "./DeleteProjectButton";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function ProjectsPage() {
       <h1>Projects</h1>
       <p className="muted" style={{ marginTop: 0 }}>
         Each project is a separate brand — its own logo, palette, voice, guidelines, assets and
-        jobs. Add one per brand (Dental Nation, Cicabelle, …) and switch between them anytime.
+        jobs. Add one per brand (Dental Nation, Balenciaga, …) and switch between them anytime.
       </p>
 
       {projects.length > 0 && (
@@ -49,6 +50,9 @@ export default async function ProjectsPage() {
                           Brand kit
                         </Link>
                       )}
+                      {projects.length > 1 && (
+                        <DeleteProjectButton projectId={p.id} name={p.name} action={deleteProject} />
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -61,7 +65,7 @@ export default async function ProjectsPage() {
       <h2>New project</h2>
       <form action={createProject} className="card">
         <label>Brand / project name</label>
-        <input type="text" name="name" placeholder="e.g. Cicabelle" required />
+        <input type="text" name="name" placeholder="e.g. Balenciaga" required />
         <p className="small muted" style={{ marginTop: 10 }}>
           Creates an empty brand kit you fill in next (logo, palette, voice, guidelines) and switches
           you to it. Everything you generate after that is scoped to this brand.
