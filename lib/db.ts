@@ -29,6 +29,15 @@ export interface Guideline {
   created_at: string;
 }
 
+export interface Logo {
+  id: number;
+  project_id: number;
+  label: string;
+  path: string;
+  is_default: number;
+  created_at: string;
+}
+
 export interface Asset {
   id: number;
   project_id: number;
@@ -61,6 +70,7 @@ export interface Job {
   platform: string;
   logo_enabled: number;
   logo_position: string;
+  logo_id: number | null;
   asset_ids: string;
   status: "draft" | "briefed" | "approved" | "submitted" | "done" | "failed";
   created_at: string;
@@ -113,6 +123,32 @@ export async function listGuidelines(projectId: number): Promise<Guideline[]> {
   const { data, error } = await supabase.from("guidelines").select("*").eq("project_id", projectId).order("created_at");
   logErr("listGuidelines", error);
   return (data as Guideline[]) ?? [];
+}
+
+export async function listLogos(projectId: number): Promise<Logo[]> {
+  const { data, error } = await supabase
+    .from("cd_logos")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("is_default", { ascending: false })
+    .order("created_at");
+  logErr("listLogos", error);
+  return (data as Logo[]) ?? [];
+}
+
+export async function getLogo(id: number): Promise<Logo | undefined> {
+  const { data } = await supabase.from("cd_logos").select("*").eq("id", id).maybeSingle();
+  return (data as Logo) ?? undefined;
+}
+
+export async function getDefaultLogo(projectId: number): Promise<Logo | undefined> {
+  const { data } = await supabase
+    .from("cd_logos")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("is_default", 1)
+    .maybeSingle();
+  return (data as Logo) ?? undefined;
 }
 
 export async function listAssets(projectId: number): Promise<Asset[]> {

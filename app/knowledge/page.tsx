@@ -108,9 +108,11 @@ export default function KnowledgePage() {
           stored once and re-injected automatically.
         </p>
         <p style={{ marginBottom: 0 }}>
-          The <strong>logo</strong> (a transparent PNG) is composited onto a corner of every finished
-          creative — it is never AI-drawn, so it stays crisp and correct. Upload or replace it on{" "}
-          <Link href="/brand">Brand kit</Link>; choose the corner per job.
+          <strong>Logos</strong> (transparent PNGs) are composited onto a corner of every finished
+          creative — never AI-drawn, so they stay crisp. Add multiple <strong>variations</strong> per
+          project (primary, a white/reversed version for dark backgrounds, an icon-only mark…) on{" "}
+          <Link href="/brand">Brand kit</Link>; one is the default, and you pick which variation and
+          which corner per job.
         </p>
       </div>
 

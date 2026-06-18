@@ -8,6 +8,7 @@ import {
   getJob,
   getAssetsByIds,
   getBrandKit,
+  getLogo,
   getLatestBrief,
   listRenders,
   jobPlatformKeys,
@@ -75,8 +76,14 @@ export async function POST(req: NextRequest) {
   }
 
   const brand = await getBrandKit(job.project_id);
+  // resolve the logo variation: the one chosen on the job, else the project default.
+  let logoPath = brand?.logo_path ?? null;
+  if (job.logo_id) {
+    const l = await getLogo(job.logo_id);
+    if (l) logoPath = l.path;
+  }
   const logoOpts = {
-    logoPath: brand?.logo_path ?? null,
+    logoPath,
     logoEnabled: job.logo_enabled === 1,
     logoPosition: (job.logo_position as LogoPosition) || "bottom-right",
   };

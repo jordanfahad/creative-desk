@@ -3,7 +3,7 @@ import { readFile, unlink, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { supabase, getJob, getBrandKit, jobPlatformKeys, type Render } from "@/lib/db";
+import { supabase, getJob, getBrandKit, getLogo, jobPlatformKeys, type Render } from "@/lib/db";
 import { uploadBuffer } from "@/lib/storage";
 import { videoStatus, videoResultUrl } from "@/lib/fal";
 import { finishVideo } from "@/lib/finishVideo";
@@ -88,8 +88,13 @@ async function fanOutVideo(master: Render, masterUrl: string) {
   const job = await getJob(master.job_id);
   if (!job) return;
   const brand = await getBrandKit(job.project_id);
+  let logoPath = brand?.logo_path ?? null;
+  if (job.logo_id) {
+    const l = await getLogo(job.logo_id);
+    if (l) logoPath = l.path;
+  }
   const logoOpts = {
-    logoPath: brand?.logo_path ?? null,
+    logoPath,
     logoEnabled: job.logo_enabled === 1,
     logoPosition: (job.logo_position as LogoPosition) || "bottom-right",
   };

@@ -59,11 +59,15 @@ function readSettings(formData: FormData) {
   const pos = (formData.get("logo_position") ?? "bottom-right").toString();
   const vm = (formData.get("video_mode") ?? "animate").toString();
   const style = (formData.get("style") ?? "auto").toString();
+  const logoIdRaw = formData.get("logo_id");
+  const logoIdNum = Number(logoIdRaw);
+  const logo_id = logoIdRaw != null && logoIdRaw !== "" && Number.isFinite(logoIdNum) ? logoIdNum : null;
   const platforms = formData.getAll("platforms").map((v) => v.toString()).filter((k) => PLATFORMS[k]);
   return {
     platforms: JSON.stringify(platforms.length ? platforms : defaultPlatforms()),
     logo_enabled: formData.get("logo_enabled") ? 1 : 0,
     logo_position: (LOGO_POSITIONS as readonly string[]).includes(pos) ? pos : "bottom-right",
+    logo_id,
     combine: formData.get("combine") ? 1 : 0,
     video_mode: VIDEO_MODES.has(vm) ? vm : "animate",
     style: STYLE_KEYS.includes(style) ? style : "auto",
@@ -92,6 +96,8 @@ export async function saveBrandKit(formData: FormData): Promise<void> {
   revalidatePath("/brand");
 }
 
+// A project can hold several logo variations (primary, white/reversed, icon …).
+// The default is denormalized onto brand_kit.logo_path for quick access.
 export async function uploadLogo(formData: FormData): Promise<void> {
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return;
@@ -99,14 +105,46 @@ export async function uploadLogo(formData: FormData): Promise<void> {
   const ok = /^image\/(png|jpe?g|webp|gif)$/i.test(file.type) || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
   if (!ok || file.size > MAX_FILE_BYTES) return;
   const pid = await getActiveProjectId();
+  const label = (formData.get("label") ?? "").toString().trim() || "Logo";
   const url = await uploadFile(file, "brand");
-  await supabase.from("brand_kit").update({ logo_path: url, updated_at: now() }).eq("project_id", pid);
+  const { data: hasDefault } = await supabase.from("cd_logos").select("id").eq("project_id", pid).eq("is_default", 1).maybeSingle();
+  const isDefault = hasDefault ? 0 : 1;
+  await supabase.from("cd_logos").insert({ project_id: pid, label, path: url, is_default: isDefault });
+  if (isDefault) await supabase.from("brand_kit").update({ logo_path: url, updated_at: now() }).eq("project_id", pid);
   revalidatePath("/brand");
 }
 
-export async function removeLogo(): Promise<void> {
+export async function setDefaultLogo(formData: FormData): Promise<void> {
+  const id = Number(formData.get("logo_id"));
+  if (!Number.isFinite(id)) return;
   const pid = await getActiveProjectId();
-  await supabase.from("brand_kit").update({ logo_path: null, updated_at: now() }).eq("project_id", pid);
+  const { data: logo } = await supabase.from("cd_logos").select("path").eq("id", id).eq("project_id", pid).maybeSingle();
+  if (!logo) return;
+  await supabase.from("cd_logos").update({ is_default: 0 }).eq("project_id", pid);
+  await supabase.from("cd_logos").update({ is_default: 1 }).eq("id", id);
+  await supabase.from("brand_kit").update({ logo_path: logo.path, updated_at: now() }).eq("project_id", pid);
+  revalidatePath("/brand");
+}
+
+export async function removeLogo(formData: FormData): Promise<void> {
+  const id = Number(formData.get("logo_id"));
+  if (!Number.isFinite(id)) return;
+  const pid = await getActiveProjectId();
+  const { data: logo } = await supabase.from("cd_logos").select("*").eq("id", id).maybeSingle();
+  if (!logo) return;
+  await supabase.from("cd_logos").delete().eq("id", id);
+  const k = pubKey(logo.path);
+  if (k) await supabase.storage.from(BUCKET).remove([k]);
+  if (logo.is_default) {
+    // promote another logo to default (or clear the denormalized pointer)
+    const { data: next } = await supabase.from("cd_logos").select("*").eq("project_id", pid).order("created_at").limit(1).maybeSingle();
+    if (next) {
+      await supabase.from("cd_logos").update({ is_default: 1 }).eq("id", next.id);
+      await supabase.from("brand_kit").update({ logo_path: next.path, updated_at: now() }).eq("project_id", pid);
+    } else {
+      await supabase.from("brand_kit").update({ logo_path: null, updated_at: now() }).eq("project_id", pid);
+    }
+  }
   revalidatePath("/brand");
 }
 

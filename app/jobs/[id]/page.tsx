@@ -5,6 +5,7 @@ import {
   getLatestBrief,
   listRenders,
   getAssetsByIds,
+  listLogos,
   assetWebPath,
   resolveDocUrl,
   jobPlatformKeys,
@@ -56,6 +57,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
     /* ignore */
   }
   const assets = await getAssetsByIds(assetIds);
+  const logos = await listLogos(job.project_id);
   const briefDocUrl = await resolveDocUrl(job.brief_doc_path);
   const selected = new Set(jobPlatformKeys(job));
   const isOptimize = job.intent === "optimize";
@@ -208,6 +210,19 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
             <label className="pill-check" style={{ margin: 0 }}>
               <input type="checkbox" name="logo_enabled" defaultChecked={job.logo_enabled === 1} /> Brand logo
             </label>
+            {logos.length > 1 && (
+              <div className="row" style={{ gap: 6 }}>
+                <span className="small muted">use</span>
+                <select name="logo_id" defaultValue={job.logo_id ?? ""} style={{ width: "auto" }}>
+                  <option value="">Default</option>
+                  {logos.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="row" style={{ gap: 6 }}>
               <span className="small muted">at</span>
               <select name="logo_position" defaultValue={job.logo_position} style={{ width: "auto" }}>

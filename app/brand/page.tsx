@@ -1,9 +1,10 @@
-import { getBrandKit, listGuidelines, assetWebPath, resolveDocUrl } from "@/lib/db";
+import { getBrandKit, listGuidelines, listLogos, assetWebPath, resolveDocUrl } from "@/lib/db";
 import { getActiveProject } from "@/lib/project";
 import {
   saveBrandKit,
   uploadLogo,
   removeLogo,
+  setDefaultLogo,
   addGuideline,
   uploadGuideline,
   toggleGuideline,
@@ -31,8 +32,10 @@ function jsonToCsv(raw: string | null): string {
 
 export default async function BrandPage() {
   const project = await getActiveProject();
-  const brand = await getBrandKit(project?.id ?? 1);
-  const guidelines = await listGuidelines(project?.id ?? 1);
+  const pid = project?.id ?? 1;
+  const brand = await getBrandKit(pid);
+  const guidelines = await listGuidelines(pid);
+  const logos = await listLogos(pid);
   // Confidential guideline PDFs are served via short-lived signed URLs.
   const docUrls = new Map<number, string>();
   await Promise.all(
@@ -97,34 +100,62 @@ export default async function BrandPage() {
         </div>
       </form>
 
-      <h2>Logo</h2>
+      <h2>Logos</h2>
       <p className="muted small" style={{ marginTop: 0 }}>
-        A transparent <strong>PNG</strong> works best — it's composited onto every
-        finished creative (you choose the corner per job).
+        Add as many variations as you need — primary, a white / reversed version for dark
+        backgrounds, an icon-only mark, etc. A transparent <strong>PNG</strong> works best. One is the{" "}
+        <strong>default</strong>; pick which variation (and the corner) per job.
       </p>
       <div className="card">
-        {brand?.logo_path && (
-          <div className="row" style={{ gap: 16, alignItems: "center", marginBottom: 16 }}>
-            <img
-              src={assetWebPath(brand.logo_path)}
-              alt="brand logo"
-              style={{ height: 64, background: "#fff", borderRadius: 8, padding: 6, border: "1px solid var(--border)" }}
-            />
-            <form action={removeLogo}>
-              <button className="btn danger sm" type="submit">
-                Remove
-              </button>
-            </form>
+        {logos.length > 0 && (
+          <div className="grid cols-3" style={{ marginBottom: 18 }}>
+            {logos.map((l) => (
+              <div key={l.id}>
+                <img
+                  src={assetWebPath(l.path)}
+                  alt={l.label}
+                  style={{ width: "100%", height: 92, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 8, border: "1px solid var(--border)" }}
+                />
+                <div className="row" style={{ justifyContent: "space-between", margin: "8px 0 6px", alignItems: "center" }}>
+                  <span className="small">
+                    <strong>{l.label}</strong>
+                  </span>
+                  {l.is_default === 1 && <span className="badge done">default</span>}
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  {l.is_default !== 1 && (
+                    <form action={setDefaultLogo}>
+                      <input type="hidden" name="logo_id" value={l.id} />
+                      <button className="btn secondary sm" type="submit">
+                        Make default
+                      </button>
+                    </form>
+                  )}
+                  <form action={removeLogo}>
+                    <input type="hidden" name="logo_id" value={l.id} />
+                    <button className="btn danger sm" type="submit">
+                      Remove
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ))}
           </div>
         )}
         <form action={uploadLogo}>
-          <label style={{ marginTop: 0 }}>
-            {brand?.logo_path ? "Replace with your logo (transparent PNG)" : "Upload your logo (transparent PNG)"}
-          </label>
-          <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required />
-          <div style={{ marginTop: 10 }}>
+          <div className="grid cols-2">
+            <div>
+              <label style={{ marginTop: 0 }}>Logo file (transparent PNG)</label>
+              <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required />
+            </div>
+            <div>
+              <label style={{ marginTop: 0 }}>Label</label>
+              <input type="text" name="label" placeholder="e.g. Primary, White, Icon" />
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
             <button className="btn" type="submit">
-              {brand?.logo_path ? "Replace logo" : "Upload logo"}
+              {logos.length ? "Add another logo" : "Add logo"}
             </button>
           </div>
         </form>
