@@ -166,12 +166,10 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
             Save direction
           </button>
         </form>
-        {!isOptimize && (
-          <p className="small muted" style={{ marginTop: 10 }}>
-            Create mode plans an AI brief from this. Generate the brief in step 3, review,
-            then generate.
-          </p>
-        )}
+        <p className="small muted" style={{ marginTop: 10 }}>
+          Next, click <strong>✨ Optimize prompt with AI</strong> below — it rewrites this into a
+          brand-aligned, production-grade {isVideoJob ? "video" : "image"} prompt before generating.
+        </p>
       </div>
 
       {/* ── 3 · CHANNELS + settings ── */}
@@ -310,12 +308,17 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
         ))
       )}
 
-      {/* ── AI brief (create) ── */}
-      {!isOptimize && (
-        <>
-          <h2>AI brief {brief && <span className="small muted">· the plan</span>}</h2>
+      {/* ── AI-optimized prompt (both intents) ── */}
+      <>
+          <h2>
+            ✨ AI-optimized prompt{" "}
+            {brief && <span className="small muted">· exactly what the renderer receives</span>}
+          </h2>
           {!brief ? (
-            <p className="muted small">No brief yet — click “Generate brief” above.</p>
+            <p className="muted small">
+              Not optimized yet — click <strong>✨ Optimize prompt with AI</strong> above. It turns your
+              direction + brand guidelines + CEO input into a production-grade prompt for much better results.
+            </p>
           ) : (
             <div className="card">
               <p>
@@ -361,7 +364,6 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
             </div>
           )}
         </>
-      )}
 
       {/* ── Director brief PDF (optional) ── */}
       <details className="card">

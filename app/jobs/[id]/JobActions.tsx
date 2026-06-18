@@ -63,13 +63,12 @@ export default function JobActions({ jobId, status, intent, media, channels, has
     }
   }
 
-  const needsBrief = intent === "create";
   const rendering = status === "submitted";
 
   // Readiness — gate the Generate button so a premature click can't 400.
   const reasons: string[] = [];
   if (channels === 0) reasons.push("tick at least one channel");
-  if (intent === "create" && !hasBrief) reasons.push("generate the brief first");
+  if (intent === "create" && !hasBrief) reasons.push("optimize the prompt first");
   if (intent === "optimize" && assetCount === 0)
     reasons.push(`add a ${media === "video" ? "video" : "photo"} to optimize`);
   const notReady = reasons.length > 0;
@@ -77,17 +76,19 @@ export default function JobActions({ jobId, status, intent, media, channels, has
   return (
     <div>
       <div className="row">
-        {needsBrief && (
-          <button
-            className="btn secondary"
-            disabled={busy !== null}
-            onClick={() => call("brief", "/api/generate-brief")}
-          >
-            {busy === "brief" ? "Planning…" : hasBrief ? "Regenerate brief" : "Generate brief"}
-          </button>
-        )}
         <button
-          className="btn"
+          className={hasBrief ? "btn secondary" : "btn"}
+          disabled={busy !== null}
+          onClick={() => call("brief", "/api/generate-brief")}
+        >
+          {busy === "brief"
+            ? "✨ Optimizing…"
+            : hasBrief
+              ? "↻ Re-optimize prompt"
+              : "✨ Optimize prompt with AI"}
+        </button>
+        <button
+          className={hasBrief ? "btn" : "btn secondary"}
           disabled={busy !== null || rendering || notReady}
           title={notReady ? `First: ${reasons.join(", ")}` : undefined}
           onClick={() => call("submit", "/api/render/submit")}
@@ -113,9 +114,9 @@ export default function JobActions({ jobId, status, intent, media, channels, has
         </p>
       ) : (
         <p className="small muted" style={{ marginTop: 10 }}>
-          {needsBrief
-            ? "Renders the brief to every selected channel."
-            : `Generates one ${media} per source and crops + brands it for all ${channels} channel${channels === 1 ? "" : "s"}.`}{" "}
+          {hasBrief
+            ? "Renders the AI-optimized prompt to every selected channel."
+            : `Tip: click ✨ Optimize prompt first — it turns your direction into a brand-aligned, production-grade prompt for much better ${media}s.`}{" "}
           Uses fal credits.
         </p>
       )}
@@ -130,7 +131,7 @@ export default function JobActions({ jobId, status, intent, media, channels, has
 }
 
 function summarize(label: string, data: Record<string, unknown>): string {
-  if (label === "brief") return "Brief ready. Review it below, then Generate.";
+  if (label === "brief") return "Prompt optimized — review it below, then Generate.";
   if (label === "submit") {
     const subs = (data.submitted as Array<{ status: string; error?: string }>) ?? [];
     if (data.status === "submitted") return "Video queued — rendering now (auto-checking every 10s).";

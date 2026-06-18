@@ -100,29 +100,31 @@ export default async function BrandPage() {
         finished creative (you choose the corner per job).
       </p>
       <div className="card">
-        {brand?.logo_path ? (
-          <div className="row" style={{ gap: 16, alignItems: "center" }}>
+        {brand?.logo_path && (
+          <div className="row" style={{ gap: 16, alignItems: "center", marginBottom: 16 }}>
             <img
               src={assetWebPath(brand.logo_path)}
               alt="brand logo"
-              style={{ height: 64, background: "#fff", borderRadius: 8, padding: 6 }}
+              style={{ height: 64, background: "#fff", borderRadius: 8, padding: 6, border: "1px solid var(--border)" }}
             />
             <form action={removeLogo}>
               <button className="btn danger sm" type="submit">
-                Remove logo
+                Remove
               </button>
             </form>
           </div>
-        ) : (
-          <form action={uploadLogo}>
-            <input type="file" name="file" accept="image/png,image/*" required />
-            <div style={{ marginTop: 10 }}>
-              <button className="btn" type="submit">
-                Upload logo
-              </button>
-            </div>
-          </form>
         )}
+        <form action={uploadLogo}>
+          <label style={{ marginTop: 0 }}>
+            {brand?.logo_path ? "Replace with your logo (transparent PNG)" : "Upload your logo (transparent PNG)"}
+          </label>
+          <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required />
+          <div style={{ marginTop: 10 }}>
+            <button className="btn" type="submit">
+              {brand?.logo_path ? "Replace logo" : "Upload logo"}
+            </button>
+          </div>
+        </form>
       </div>
 
       <h2>Guidelines</h2>

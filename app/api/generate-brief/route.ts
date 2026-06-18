@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { supabase, getJob } from "@/lib/db";
-import { assembleContext, BriefSchema, type Brief } from "@/lib/context";
+import { assembleContext, briefSystemPrompt, BriefSchema, type Brief } from "@/lib/context";
 
 export const runtime = "nodejs";
 
@@ -55,47 +55,19 @@ export async function POST(req: NextRequest) {
   const { block, assets } = await assembleContext(job);
 
   const directorBrief = (job.brief_doc_text ?? "").trim();
-
-  const system = [
-    "You are the creative director for a dental clinic's content desk.",
-    "Plan a piece for the fal.ai render pipeline (FLUX for stills, Kling for clips) using ONLY the brand context below.",
-    "",
-    block,
-    "",
-    ...(directorBrief
-      ? [
-          "# Creative director brief (uploaded PDF) — PRIMARY DIRECTION",
-          "Treat the following as the lead brief; the shots must realize it while",
-          "staying within the brand guardrails above.",
-          directorBrief.slice(0, 12000),
-          "",
-        ]
-      : []),
-    "# How the renderer works (do not oversell)",
-    "The renderer returns single clips or single stills — NOT finished ads. So your",
-    "brief outputs a list of shots PLUS assembly_instructions describing how the",
-    "human stitches them in their editor (music, burned captions, logo sting).",
-    "",
-    "# Mode",
-    job.mode === "static"
-      ? "STATIC: still images for Google Business Profile / trust. duration_seconds = 0, motion = \"\"."
-      : "DYNAMIC: short awareness video. Each shot is one clip with motion and a duration.",
-    "",
-    "# Rules",
-    "- Respect every hard guardrail above. Never imply a medical outcome or claim.",
-    "- Reference selected source assets by their id in source_asset_id when a shot is built from one.",
-    "- Keep prompts concrete and on-brand.",
-  ].join("\n");
+  const system = briefSystemPrompt(job, block, directorBrief);
 
   const userMsg = [
     `Job: ${job.title}`,
     job.goal ? `Goal: ${job.goal}` : "",
-    job.brief_notes ? `Human direction: ${job.brief_notes}` : "",
+    job.brief_notes
+      ? `Human direction (turn THIS into great prompts): ${job.brief_notes}`
+      : "No direction given — infer a strong, on-brand idea from the brand context.",
     assets.length
-      ? `Available source asset ids: ${assets.map((a) => a.id).join(", ")}`
-      : "No source assets selected — use text-to-image (source_asset_id = null).",
+      ? `Source photo/clip ids to ${job.intent === "optimize" ? "enhance" : "reference"}: ${assets.map((a) => a.id).join(", ")}`
+      : "No source assets — text-to-image (source_asset_id = null).",
     "",
-    "Produce the structured creative brief.",
+    "Write the production-grade prompt(s) now, as the structured brief.",
   ]
     .filter(Boolean)
     .join("\n");

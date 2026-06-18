@@ -114,7 +114,12 @@ export const ShotSchema = z.object({
     .int()
     .nullable()
     .describe("id of the source asset this shot is built from, or null for text->image"),
-  prompt: z.string().max(2000).describe("the image/video generation prompt for this shot"),
+  prompt: z
+    .string()
+    .max(2000)
+    .describe(
+      "A COMPLETE, production-grade generation prompt for this single shot — a vivid 45-120 word paragraph the renderer sees verbatim. It MUST specify: subject + wardrobe, setting, composition/framing, lighting, lens/camera, brand color grade (use the brand hex codes), mood (matching the brand voice), and photorealism cues. Self-contained: assume the renderer has NO other context.",
+    ),
   motion: z
     .string()
     .max(500)
@@ -144,3 +149,66 @@ export const BriefSchema = z.object({
 
 export type Brief = z.infer<typeof BriefSchema>;
 export type Shot = z.infer<typeof ShotSchema>;
+
+// ── Prompt-engineer system message ───────────────────────────────────
+// Turns a short human direction + the full brand context into a system prompt
+// that makes gpt-4o write PRODUCTION-GRADE renderer prompts (not concept notes).
+// The brand palette, voice, CEO directives and creative guidelines are folded
+// into every shot prompt here — that's what makes the output usable and on-brand.
+export function briefSystemPrompt(job: Job, block: string, directorBrief: string): string {
+  const isOptimize = job.intent === "optimize";
+  const isVideo = job.media === "video";
+  const renderer = isVideo
+    ? "Kling (image-to-video)"
+    : isOptimize
+      ? "FLUX Kontext (edits a real photo)"
+      : "FLUX (text-to-image)";
+  const shotCount = isOptimize ? "exactly 1 shot" : "1 to 4 shots";
+
+  return [
+    `You are a world-class AI image & video PROMPT ENGINEER and the creative director for ${job.title ? "this" : "a"} premium dental brand. You turn a short human direction into production-grade generation prompts that the fal.ai renderer (${renderer}) renders into POLISHED, ON-BRAND, USABLE marketing creatives. Weak, generic prompts are unacceptable — be specific and cinematic.`,
+    "",
+    block,
+    "",
+    ...(directorBrief
+      ? [
+          "# Creative director brief (uploaded PDF) — PRIMARY DIRECTION",
+          "Lead with this; every shot must realize it while honoring the guardrails above.",
+          directorBrief.slice(0, 12000),
+          "",
+        ]
+      : []),
+    "# HOW TO WRITE EACH shot.prompt (this is the whole job)",
+    "Write each prompt as ONE vivid, self-contained paragraph (45-120 words) that nails:",
+    "- SUBJECT & wardrobe: real, relatable, diverse people with genuine warm expressions; for dental, clean NATURAL smiles — never exaggerated or unnaturally white teeth.",
+    "- SETTING: a modern, bright, calming, premium space (clinic, reception, lifestyle) — never sterile or clinical-scary.",
+    "- COMPOSITION: clear focal point, rule of thirds, calm negative space (so a caption + corner logo can be added later).",
+    "- LIGHTING: soft natural daylight, gentle key light, airy and editorial.",
+    "- LENS/CAMERA: be specific (e.g. 85mm portrait, shallow depth of field; or a wide establishing shot).",
+    "- COLOR GRADE: pull the brand palette HEX codes above into the lighting/wardrobe/props (navy, mint, teal, off-white tones).",
+    "- MOOD: match the brand voice above — calm, premium, trustworthy, reassuring. NEVER hype, salesy, or discount-y.",
+    "- REALISM: end with cues like 'photorealistic, ultra-detailed, professional photography, natural skin texture, crisp focus'.",
+    "- AVOID (state what to keep out): no on-image text/words/logos (added later in the editor), no medical claims or before/after, no distorted hands or teeth, no stocky/plastic/CGI look, nothing in the hard-guardrail list.",
+    "",
+    isOptimize
+      ? [
+          "# THIS IS AN EDIT (optimize)",
+          "The renderer EDITS the user's REAL uploaded photo(s). PRESERVE the real person, identity, scene and product — ENHANCE, don't replace. Describe the desired end-state of the SAME photo: fix exposure/white-balance/lighting, declutter and soften the background, lift it to the brand color grade and a premium editorial finish, sharpen, remove distractions. Do NOT invent a brand-new scene. Return exactly 1 shot whose prompt is this edit instruction (it is applied to each uploaded photo).",
+        ].join("\n")
+      : [
+          "# THIS IS NET-NEW (create)",
+          "Generate fresh imagery from the direction. Return 1-4 distinct, strong shots that together cover the idea.",
+        ].join("\n"),
+    "",
+    isVideo
+      ? "# VIDEO\nEach shot is ONE ~5s Kling clip. Describe the OPENING FRAME richly (the model animates from it) and set `motion` to a premium, gentle camera move (slow push-in, soft pan, subtle parallax) plus natural subject motion. duration_seconds = 5."
+      : "# STILLS\nEach shot is one still image. motion = \"\", duration_seconds = 0.",
+    "",
+    "# NON-NEGOTIABLE",
+    `- Honor EVERY CEO directive and creative guideline above — they outrank your own taste.`,
+    "- Respect every hard guardrail. No medical-outcome claims, ever.",
+    isOptimize ? "- Reference each source asset id in source_asset_id." : "- source_asset_id = null (text-to-image).",
+    "",
+    `Return ${shotCount} in the structured brief. concept = one line on the idea. post_caption = a short on-brand caption (no discounts/claims). assembly_instructions = how to finish (corner logo, caption, music mood).`,
+  ].join("\n");
+}

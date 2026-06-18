@@ -145,18 +145,24 @@ export async function POST(req: NextRequest) {
         if (!imageAssets.length) {
           return NextResponse.json({ error: "Upload image creatives to optimize." }, { status: 400 });
         }
-        const instruction =
-          brief?.shots?.[0]?.prompt ||
-          job.brief_notes ||
-          "Clean up and enhance: fix lighting, balance the composition, remove clutter.";
+        // Prefer the AI-optimized edit prompt (already brand-rich) verbatim;
+        // fall back to the raw direction + a brand reminder only if none exists.
+        const optimized = brief?.shots?.[0]?.prompt;
+        const instruction = optimized || job.brief_notes || "Clean up and enhance: fix lighting, balance the composition, remove clutter.";
         if (job.combine === 1 && imageAssets.length > 1) {
           const urls = imageAssets.map((a) => a.local_path);
-          const master = await fetchBuf((await editImage(`Edit and combine these photos on-brand. ${instruction} ${brandHint}`, urls, MASTER_ASPECT)).url);
+          const editPrompt = optimized
+            ? `Combine these photos into one balanced, on-brand composition. ${instruction}`
+            : `Edit and combine these photos on-brand, keep the real subjects. ${instruction} ${brandHint}`;
+          const master = await fetchBuf((await editImage(editPrompt, urls, MASTER_ASPECT)).url);
           await fanOutImage(master, 0, null, { mode: "optimize", combined: imageAssets.length });
         } else {
+          const editPrompt = optimized
+            ? instruction
+            : `Edit and enhance this photo on-brand, keep the real subject. ${instruction} ${brandHint}`;
           for (let i = 0; i < imageAssets.length; i++) {
             try {
-              const master = await fetchBuf((await editImage(`Edit and enhance this photo on-brand, keep the real subject. ${instruction} ${brandHint}`, [imageAssets[i].local_path], MASTER_ASPECT)).url);
+              const master = await fetchBuf((await editImage(editPrompt, [imageAssets[i].local_path], MASTER_ASPECT)).url);
               await fanOutImage(master, i, imageAssets[i].id, { mode: "optimize", asset_id: imageAssets[i].id });
             } catch (e) {
               // master generation failed → record a failed deliverable per channel so it's visible
@@ -173,7 +179,8 @@ export async function POST(req: NextRequest) {
         }
         for (const shot of brief.shots) {
           try {
-            const master = await fetchBuf((await generateImage(`${shot.prompt} ${brandHint}`, MASTER_IMAGE_SIZE)).url);
+            // shot.prompt is already a complete, brand-infused production prompt — use it verbatim.
+            const master = await fetchBuf((await generateImage(shot.prompt, MASTER_IMAGE_SIZE)).url);
             await fanOutImage(master, shot.index, null, { mode: "create", caption: shot.caption });
           } catch (e) {
             for (const platform of platforms) {
@@ -202,17 +209,25 @@ export async function POST(req: NextRequest) {
           }
         }
       } else {
-        const instruction = brief?.shots?.[0]?.prompt || job.brief_notes || "An on-brand promotional clip.";
+        const shot0 = brief?.shots?.[0];
+        const optimized = shot0?.prompt;
+        const motion = shot0?.motion ? ` Camera/motion: ${shot0.motion}.` : "";
+        // optimized prompt is brand-rich → use verbatim (+ motion); else wrap raw direction.
+        const instruction = optimized
+          ? `${optimized}${motion}`
+          : `${job.brief_notes || "An on-brand promotional clip."} ${brandHint}`;
+        // the seed image gets the same brand-rich prompt (sans motion, since it's a still)
+        const seedPrompt = optimized || `${job.brief_notes || "An on-brand promotional clip."} ${brandHint}`;
         let seedUrl: string;
         let seedAssetId: number | null = null;
         if (imageAssets.length) {
           seedUrl = imageAssets[0].local_path;
           seedAssetId = imageAssets[0].id;
         } else {
-          seedUrl = (await generateImage(`${instruction} ${brandHint}`, MASTER_IMAGE_SIZE)).url;
+          seedUrl = (await generateImage(seedPrompt, MASTER_IMAGE_SIZE)).url;
         }
         const maxDur = Math.max(5, ...platforms.map((p) => p.maxDurationSeconds ?? 5));
-        const sub = await enqueueVideo(`${instruction} ${brandHint}`, seedUrl, maxDur);
+        const sub = await enqueueVideo(instruction, seedUrl, maxDur);
         await insertRender({ group: 0, sourceAssetId: seedAssetId, platform: null, status: "processing", request_id: sub.requestId, status_url: sub.model, meta: { master: true } });
         results.push({ group: 0, platform: null, status: "processing" });
       }
