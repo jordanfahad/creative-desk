@@ -9,7 +9,7 @@
 /data
 /storage
 
-# env — contains the Higgsfield + OpenAI secrets
+# env — contains the OpenAI + fal.ai + Supabase secrets
 .env.local
 .env*.local
 

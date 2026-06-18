@@ -44,7 +44,9 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 async function fetchBuf(url: string): Promise<Buffer> {
-  return Buffer.from(await (await fetch(url)).arrayBuffer());
+  const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+  if (!res.ok) throw new Error(`fetch failed: HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 export async function POST(req: NextRequest) {
@@ -157,6 +159,10 @@ export async function POST(req: NextRequest) {
               const master = await fetchBuf((await editImage(`Edit and enhance this photo on-brand, keep the real subject. ${instruction} ${brandHint}`, [imageAssets[i].local_path], MASTER_ASPECT)).url);
               await fanOutImage(master, i, imageAssets[i].id, { mode: "optimize", asset_id: imageAssets[i].id });
             } catch (e) {
+              // master generation failed → record a failed deliverable per channel so it's visible
+              for (const platform of platforms) {
+                await insertRender({ group: i, sourceAssetId: imageAssets[i].id, platform: platform.key, status: "failed", error: errMsg(e), meta: { mode: "optimize" } });
+              }
               results.push({ group: i, platform: null, status: "failed", error: errMsg(e) });
             }
           }
@@ -170,6 +176,9 @@ export async function POST(req: NextRequest) {
             const master = await fetchBuf((await generateImage(`${shot.prompt} ${brandHint}`, MASTER_IMAGE_SIZE)).url);
             await fanOutImage(master, shot.index, null, { mode: "create", caption: shot.caption });
           } catch (e) {
+            for (const platform of platforms) {
+              await insertRender({ group: shot.index, sourceAssetId: null, platform: platform.key, status: "failed", error: errMsg(e), meta: { mode: "create" } });
+            }
             results.push({ group: shot.index, platform: null, status: "failed", error: errMsg(e) });
           }
         }

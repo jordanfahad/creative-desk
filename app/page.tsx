@@ -28,13 +28,13 @@ export default async function Home() {
       </p>
 
       <div className="grid cols-2" style={{ marginTop: 16 }}>
-        <Link href="/jobs/new" className="card" style={{ textDecoration: "none", color: "inherit" }}>
+        <Link href="/jobs/new" className="card entry" style={{ textDecoration: "none", color: "inherit" }}>
           <h3 style={{ marginTop: 0 }}>↻ Optimize a creative</h3>
           <p className="small muted" style={{ marginBottom: 0 }}>
             Upload a photo or video — fix it on-brand and size it for every channel.
           </p>
         </Link>
-        <Link href="/jobs/new" className="card" style={{ textDecoration: "none", color: "inherit" }}>
+        <Link href="/jobs/new" className="card entry" style={{ textDecoration: "none", color: "inherit" }}>
           <h3 style={{ marginTop: 0 }}>✦ Create something new</h3>
           <p className="small muted" style={{ marginBottom: 0 }}>
             Describe it — generate it on-brand for every channel.

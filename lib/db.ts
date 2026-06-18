@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { publicUrl } from "./storage";
+import { publicUrl, resolveDocUrl } from "./storage";
 
 // Supabase-backed data layer. All reads/writes are async via the admin client.
 // (Schema lives in Supabase; see db/schema.sql for the equivalent DDL.)
@@ -92,52 +92,66 @@ export interface Render {
 
 // ── reads ──
 
+// Surface DB errors in the server logs — the readers fall back to empty/undefined
+// so a page never crashes, but a silent Supabase blip should still be diagnosable.
+function logErr(where: string, error: unknown): void {
+  if (error) console.error(`[db] ${where}:`, (error as { message?: string })?.message ?? error);
+}
+
 export async function getBrandKit(): Promise<BrandKit | undefined> {
-  const { data } = await supabase.from("brand_kit").select("*").eq("id", 1).maybeSingle();
+  const { data, error } = await supabase.from("brand_kit").select("*").eq("id", 1).maybeSingle();
+  logErr("getBrandKit", error);
   return (data as BrandKit) ?? undefined;
 }
 
 export async function listGuidelines(): Promise<Guideline[]> {
-  const { data } = await supabase.from("guidelines").select("*").order("created_at");
+  const { data, error } = await supabase.from("guidelines").select("*").order("created_at");
+  logErr("listGuidelines", error);
   return (data as Guideline[]) ?? [];
 }
 
 export async function listAssets(): Promise<Asset[]> {
-  const { data } = await supabase.from("assets").select("*").order("created_at", { ascending: false });
+  const { data, error } = await supabase.from("assets").select("*").order("created_at", { ascending: false });
+  logErr("listAssets", error);
   return (data as Asset[]) ?? [];
 }
 
 export async function listJobs(): Promise<Job[]> {
-  const { data } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
+  const { data, error } = await supabase.from("jobs").select("*").order("created_at", { ascending: false });
+  logErr("listJobs", error);
   return (data as Job[]) ?? [];
 }
 
 export async function getJob(id: number): Promise<Job | undefined> {
-  const { data } = await supabase.from("jobs").select("*").eq("id", id).maybeSingle();
+  const { data, error } = await supabase.from("jobs").select("*").eq("id", id).maybeSingle();
+  logErr("getJob", error);
   return (data as Job) ?? undefined;
 }
 
 export async function getAssetsByIds(ids: number[]): Promise<Asset[]> {
   if (!ids.length) return [];
-  const { data } = await supabase.from("assets").select("*").in("id", ids);
+  const { data, error } = await supabase.from("assets").select("*").in("id", ids);
+  logErr("getAssetsByIds", error);
   // preserve the requested order
   const byId = new Map((data as Asset[] | null)?.map((a) => [a.id, a]) ?? []);
   return ids.map((id) => byId.get(id)).filter((a): a is Asset => !!a);
 }
 
 export async function getLatestBrief(jobId: number): Promise<Brief | undefined> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("briefs")
     .select("*")
     .eq("job_id", jobId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  logErr("getLatestBrief", error);
   return (data as Brief) ?? undefined;
 }
 
 export async function listRenders(jobId: number): Promise<Render[]> {
-  const { data } = await supabase.from("renders").select("*").eq("job_id", jobId).order("shot_index");
+  const { data, error } = await supabase.from("renders").select("*").eq("job_id", jobId).order("shot_index");
+  logErr("listRenders", error);
   return (data as Render[]) ?? [];
 }
 
@@ -147,6 +161,8 @@ export async function listRenders(jobId: number): Promise<Render[]> {
 export function assetWebPath(path: string): string {
   return publicUrl(path);
 }
+
+export { resolveDocUrl };
 
 export function jobPlatformKeys(job: Job): string[] {
   try {

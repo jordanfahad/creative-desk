@@ -10,9 +10,10 @@ interface Props {
   media: "image" | "video";
   channels: number;
   hasBrief: boolean;
+  assetCount: number;
 }
 
-export default function JobActions({ jobId, status, intent, media, channels, hasBrief }: Props) {
+export default function JobActions({ jobId, status, intent, media, channels, hasBrief, assetCount }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -65,6 +66,14 @@ export default function JobActions({ jobId, status, intent, media, channels, has
   const needsBrief = intent === "create";
   const rendering = status === "submitted";
 
+  // Readiness — gate the Generate button so a premature click can't 400.
+  const reasons: string[] = [];
+  if (channels === 0) reasons.push("tick at least one channel");
+  if (intent === "create" && !hasBrief) reasons.push("generate the brief first");
+  if (intent === "optimize" && assetCount === 0)
+    reasons.push(`add a ${media === "video" ? "video" : "photo"} to optimize`);
+  const notReady = reasons.length > 0;
+
   return (
     <div>
       <div className="row">
@@ -79,7 +88,8 @@ export default function JobActions({ jobId, status, intent, media, channels, has
         )}
         <button
           className="btn"
-          disabled={busy !== null || rendering}
+          disabled={busy !== null || rendering || notReady}
+          title={notReady ? `First: ${reasons.join(", ")}` : undefined}
           onClick={() => call("submit", "/api/render/submit")}
         >
           {busy === "submit" ? (
@@ -97,12 +107,18 @@ export default function JobActions({ jobId, status, intent, media, channels, has
         )}
       </div>
 
-      <p className="small muted" style={{ marginTop: 10 }}>
-        {needsBrief
-          ? "Generate the brief first, then Generate to render it to every selected channel."
-          : `Generates one ${media} per source and crops + brands it for all ${channels} channel${channels === 1 ? "" : "s"}.`}{" "}
-        Uses fal credits.
-      </p>
+      {notReady ? (
+        <p className="small muted" style={{ marginTop: 10 }}>
+          To generate, first {reasons.join(", and ")}.
+        </p>
+      ) : (
+        <p className="small muted" style={{ marginTop: 10 }}>
+          {needsBrief
+            ? "Renders the brief to every selected channel."
+            : `Generates one ${media} per source and crops + brands it for all ${channels} channel${channels === 1 ? "" : "s"}.`}{" "}
+          Uses fal credits.
+        </p>
+      )}
 
       {msg && (
         <p className={`notice ${msg.kind === "err" ? "danger" : ""}`} style={{ marginTop: 12 }}>

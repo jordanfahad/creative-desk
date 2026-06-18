@@ -2,7 +2,7 @@
   "name": "creative-desk",
   "version": "0.1.0",
   "private": true,
-  "description": "Internal creative production desk — stores brand context once, re-injects it into every OpenAI + Higgsfield generation, tracks each render job brief -> approval -> render -> result. Local-first (SQLite, no Supabase).",
+  "description": "Internal creative production desk for Dental Nation — stores brand context once, re-injects it into every OpenAI (gpt-4o) brief and fal.ai render, and tracks each job from brief to multi-channel delivery. Deployed on Vercel + Supabase.",
   "scripts": {
     "dev": "next dev -p 3017",
     "build": "next build",

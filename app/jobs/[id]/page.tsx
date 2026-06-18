@@ -6,6 +6,7 @@ import {
   listRenders,
   getAssetsByIds,
   assetWebPath,
+  resolveDocUrl,
   jobPlatformKeys,
 } from "@/lib/db";
 import { BriefSchema, type Brief } from "@/lib/context";
@@ -58,9 +59,19 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
     /* ignore */
   }
   const assets = await getAssetsByIds(assetIds);
+  const briefDocUrl = await resolveDocUrl(job.brief_doc_path);
   const selected = new Set(jobPlatformKeys(job));
   const isOptimize = job.intent === "optimize";
   const isVideoJob = job.media === "video";
+
+  // Spend estimate: paid AI generations only — channel re-crops are free.
+  const imageAssetCount = assets.filter((a) => a.media !== "video").length;
+  let aiCalls = 0;
+  if (!isOptimize) aiCalls = brief ? brief.shots.length : 0;
+  else if (!isVideoJob) aiCalls = job.combine === 1 ? (imageAssetCount ? 1 : 0) : imageAssetCount;
+  else aiCalls = job.video_mode === "passthrough" ? 0 : 1;
+  const ch = selected.size;
+  const chWord = `${ch} channel${ch === 1 ? "" : "s"}`;
 
   // deliverables (hide internal video master rows where platform is null)
   const deliverables = renders.filter((r) => r.platform);
@@ -226,6 +237,11 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
       {/* ── 4 · GENERATE ── */}
       <div className="card">
         <h3 style={{ marginTop: 0 }}>{isOptimize ? "4" : "3"} · Generate</h3>
+        <p className="notice small" style={{ marginBottom: 14 }}>
+          {aiCalls === 0
+            ? `Resize + brand only — no AI credits used. Delivers ${chWord}.`
+            : `${aiCalls} AI generation${aiCalls === 1 ? "" : "s"} → delivered to ${chWord}. Re-crops for every channel are free.`}
+        </p>
         <JobActions
           jobId={job.id}
           status={job.status}
@@ -233,6 +249,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
           media={job.media}
           channels={selected.size}
           hasBrief={!!brief}
+          assetCount={assets.length}
         />
       </div>
 
@@ -260,6 +277,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
             <div className="grid cols-3">
               {rs.map((r) => {
                 const plat = r.platform ? PLATFORMS[r.platform] : undefined;
+                const aspectRatio = plat ? `${plat.w} / ${plat.h}` : "1 / 1";
                 return (
                   <div className="card" key={r.id} style={{ marginBottom: 0 }}>
                     <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
@@ -269,9 +287,9 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                     {r.result_url ? (
                       <>
                         {isVideo(r.result_url) ? (
-                          <video className="thumb" src={r.result_url} controls />
+                          <video className="result-media" style={{ aspectRatio }} src={r.result_url} controls />
                         ) : (
-                          <img className="thumb" src={r.result_url} alt={r.platform ?? ""} />
+                          <img className="result-media" style={{ aspectRatio }} src={r.result_url} alt={r.platform ?? ""} />
                         )}
                         <div className="row" style={{ marginTop: 8 }}>
                           <a className="btn secondary sm" href={r.result_url} download target="_blank" rel="noreferrer">
@@ -280,7 +298,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                         </div>
                       </>
                     ) : (
-                      <div className="thumb" style={{ display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 8 }}>
+                      <div className="result-media" style={{ aspectRatio, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 8 }}>
                         <span className="small muted">{r.error ? r.error.slice(0, 120) : `${r.status}…`}</span>
                       </div>
                     )}
@@ -355,9 +373,13 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
             <>
               <p className="small">
                 📄{" "}
-                <a href={assetWebPath(job.brief_doc_path)} target="_blank" rel="noreferrer">
-                  {job.brief_doc_path.split("/").pop()}
-                </a>{" "}
+                {briefDocUrl ? (
+                  <a href={briefDocUrl} target="_blank" rel="noreferrer">
+                    Director brief (PDF)
+                  </a>
+                ) : (
+                  <span>Director brief (PDF)</span>
+                )}{" "}
                 <span className="muted">— leads the AI brief.</span>
               </p>
               <form action={removeBriefDoc}>

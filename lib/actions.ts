@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { randomUUID } from "node:crypto";
 import { supabase } from "./db";
-import { uploadBuffer } from "./storage";
+import { uploadBuffer, uploadPrivate } from "./storage";
 import { BriefSchema } from "./context";
 import { extractPdfText } from "./pdf";
 import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms } from "./platform";
@@ -88,7 +88,10 @@ export async function saveBrandKit(formData: FormData): Promise<void> {
 
 export async function uploadLogo(formData: FormData): Promise<void> {
   const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0 || !mediaOf(file)) return;
+  if (!(file instanceof File) || file.size === 0) return;
+  // Raster image only (no SVG — a stored SVG served from storage is an XSS vector), with a size cap.
+  const ok = /^image\/(png|jpe?g|webp|gif)$/i.test(file.type) || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
+  if (!ok || file.size > MAX_FILE_BYTES) return;
   const url = await uploadFile(file, "brand");
   await supabase.from("brand_kit").upsert({ id: 1, logo_path: url, updated_at: now() }, { onConflict: "id" });
   revalidatePath("/brand");
@@ -120,8 +123,9 @@ export async function uploadGuideline(formData: FormData): Promise<void> {
     text = "";
   }
   if (!text) return;
-  const url = await uploadBuffer(`guidelines/${randomUUID().slice(0, 8)}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`, buf, "application/pdf");
-  await supabase.from("guidelines").insert({ title, body: text, source: normalizeSource(formData.get("source")), doc_path: url, active: 1 });
+  // Confidential — store in the private bucket under a non-guessable key.
+  const key = await uploadPrivate(`guidelines/${randomUUID()}.pdf`, buf, "application/pdf");
+  await supabase.from("guidelines").insert({ title, body: text, source: normalizeSource(formData.get("source")), doc_path: key, active: 1 });
   revalidatePath("/brand");
 }
 
@@ -182,7 +186,8 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
   }
   if (!newIds.length) return;
   const ids = [...(JSON.parse(job.asset_ids || "[]") as number[]), ...newIds];
-  await supabase.from("jobs").update({ asset_ids: JSON.stringify(ids), intent: "optimize", image_mode: "edit", updated_at: now() }).eq("id", jobId);
+  // Don't mutate intent here — createJob already set it; uploading a source must not flip a job's type.
+  await supabase.from("jobs").update({ asset_ids: JSON.stringify(ids), updated_at: now() }).eq("id", jobId);
   revalidatePath(`/jobs/${jobId}`);
 }
 
@@ -278,8 +283,9 @@ export async function uploadBriefDoc(formData: FormData): Promise<void> {
   } catch {
     text = "";
   }
-  const url = await uploadBuffer(`briefs/${randomUUID().slice(0, 8)}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`, buf, "application/pdf");
-  await supabase.from("jobs").update({ brief_doc_path: url, brief_doc_text: text || null, updated_at: now() }).eq("id", jobId);
+  // Confidential — store in the private bucket under a non-guessable key.
+  const key = await uploadPrivate(`briefs/${randomUUID()}.pdf`, buf, "application/pdf");
+  await supabase.from("jobs").update({ brief_doc_path: key, brief_doc_text: text || null, updated_at: now() }).eq("id", jobId);
   revalidatePath(`/jobs/${jobId}`);
 }
 

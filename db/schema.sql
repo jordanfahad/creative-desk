@@ -1,6 +1,13 @@
+-- ─────────────────────────────────────────────────────────────────────
+-- LEGACY — NOT the source of truth.
+-- The live database is Supabase Postgres. This SQLite DDL is kept ONLY for
+-- local-script reference (e.g. scripts/seed.mjs) and historical context. Do
+-- not treat it as authoritative; schema changes happen in Supabase.
+-- ─────────────────────────────────────────────────────────────────────
+--
 -- Creative Desk — local data model & context store (SQLite).
--- Replaces the Supabase Postgres schema. Run once via lib/db.ts (auto-applied
--- on first import). Single-user, local-first; no RLS needed.
+-- Run once via lib/db.ts (auto-applied on first import). Single-user,
+-- local-first; no RLS needed.
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -87,7 +94,7 @@ CREATE TABLE IF NOT EXISTS briefs (
 );
 
 -- ── renders ──────────────────────────────────────────────────────────
--- One Higgsfield render request per row. request_id/status_url come from
+-- One fal.ai render request per row. request_id/status_url come from
 -- submit; status/result_url get filled in by poll.
 CREATE TABLE IF NOT EXISTS renders (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

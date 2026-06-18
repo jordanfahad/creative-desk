@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import ffmpegStatic from "ffmpeg-static";
-import type { FinishOpts } from "./finish";
+import { loadLogoBuffer, type FinishOpts } from "./finish";
 
 // Deterministic VIDEO finishing via ffmpeg: cover-scale + crop to the exact
 // platform dimensions, composite the brand logo at a corner, preserve audio.
@@ -23,12 +26,30 @@ export async function finishVideo(
   const H = platform.h;
   const margin = Math.round(W * 0.04);
 
+  // The logo may be a Supabase URL (hosted) or a local file path (dev). ffmpeg
+  // needs a local file, so download a URL logo to /tmp. Degrade gracefully — a
+  // missing/unreadable logo renders the clip without it instead of failing.
+  let localLogo: string | null = null;
+  let tempLogo: string | null = null;
+  if (opts.logoEnabled && opts.logoPath) {
+    try {
+      if (/^https?:\/\//.test(opts.logoPath)) {
+        tempLogo = join(tmpdir(), `cd-logo-${randomUUID().slice(0, 8)}.png`);
+        await writeFile(tempLogo, await loadLogoBuffer(opts.logoPath));
+        localLogo = tempLogo;
+      } else {
+        localLogo = resolve(opts.logoPath);
+      }
+    } catch {
+      localLogo = null;
+    }
+  }
+  const useLogo = !!localLogo;
+
   const args: string[] = ["-y"];
   if (opts.trim?.start) args.push("-ss", String(opts.trim.start));
   args.push("-i", inputPath);
-
-  const useLogo = !!(opts.logoEnabled && opts.logoPath);
-  if (useLogo) args.push("-i", resolve(opts.logoPath as string));
+  if (useLogo) args.push("-i", localLogo as string);
 
   // cover-crop the base video to W×H
   let filter = `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1`;
@@ -54,7 +75,11 @@ export async function finishVideo(
   if (opts.trim?.duration) args.push("-t", String(opts.trim.duration));
   args.push(outputPath);
 
-  await runFfmpeg(args);
+  try {
+    await runFfmpeg(args);
+  } finally {
+    if (tempLogo) await unlink(tempLogo).catch(() => {});
+  }
 }
 
 function runFfmpeg(args: string[]): Promise<void> {

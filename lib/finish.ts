@@ -8,6 +8,17 @@ import type { Platform, LogoPosition } from "./platform";
 // corner. The logo is clamped to fit and the whole thing degrades gracefully —
 // a bad/oversized logo never crashes a render.
 
+// The brand logo path is a Supabase public URL on the hosted build and a local
+// file path in the local dev build — load either.
+export async function loadLogoBuffer(logoPath: string): Promise<Buffer> {
+  if (/^https?:\/\//.test(logoPath)) {
+    const res = await fetch(logoPath);
+    if (!res.ok) throw new Error(`logo fetch failed: HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+  return readFile(resolve(logoPath));
+}
+
 export interface FinishOpts {
   platform: Platform;
   logoPath?: string | null; // storage-relative path to the brand logo PNG
@@ -25,7 +36,7 @@ export async function finishImage(input: Buffer, opts: FinishOpts): Promise<Buff
 
   if (opts.logoEnabled && opts.logoPath) {
     try {
-      const logoBuf = await readFile(resolve(opts.logoPath));
+      const logoBuf = await loadLogoBuffer(opts.logoPath);
       const margin = Math.round(platform.w * 0.04);
       const maxW = platform.w - 2 * margin;
       const maxH = platform.h - 2 * margin;

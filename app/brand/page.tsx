@@ -1,4 +1,4 @@
-import { getBrandKit, listGuidelines, assetWebPath } from "@/lib/db";
+import { getBrandKit, listGuidelines, assetWebPath, resolveDocUrl } from "@/lib/db";
 import {
   saveBrandKit,
   uploadLogo,
@@ -31,6 +31,16 @@ function jsonToCsv(raw: string | null): string {
 export default async function BrandPage() {
   const brand = await getBrandKit();
   const guidelines = await listGuidelines();
+  // Confidential guideline PDFs are served via short-lived signed URLs.
+  const docUrls = new Map<number, string>();
+  await Promise.all(
+    guidelines
+      .filter((g) => g.doc_path)
+      .map(async (g) => {
+        const url = await resolveDocUrl(g.doc_path);
+        if (url) docUrls.set(g.id, url);
+      }),
+  );
 
   return (
     <main>
@@ -143,10 +153,10 @@ export default async function BrandPage() {
                   </td>
                   <td>
                     {g.title}
-                    {g.doc_path && (
+                    {docUrls.has(g.id) && (
                       <>
                         {" "}
-                        <a href={assetWebPath(g.doc_path)} target="_blank" rel="noreferrer" className="small">
+                        <a href={docUrls.get(g.id)} target="_blank" rel="noreferrer" className="small">
                           📄 PDF
                         </a>
                       </>
