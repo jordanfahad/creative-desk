@@ -241,6 +241,75 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
   revalidatePath(`/jobs/${jobId}`);
 }
 
+// ── inspiration references ("make it like this") ──
+// Style references live in `assets` (kind='inspiration', notes = what to borrow)
+// and hang off jobs.inspiration_ids, mirroring the asset_ids pattern. Images
+// only — they steer the LOOK of the render, never its content.
+
+const MAX_INSPIRATION_PER_JOB = 3;
+
+export async function uploadJobInspiration(formData: FormData): Promise<void> {
+  const jobId = Number(formData.get("job_id"));
+  if (!Number.isFinite(jobId)) return;
+  const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!files.length) return;
+
+  const { data: job } = await supabase.from("jobs").select("inspiration_ids, project_id").eq("id", jobId).maybeSingle();
+  if (!job) return;
+  const existing: number[] = (() => {
+    try { const v = JSON.parse(job.inspiration_ids || "[]"); return Array.isArray(v) ? v.map(Number).filter(Number.isFinite) : []; } catch { return []; }
+  })();
+
+  const room = MAX_INSPIRATION_PER_JOB - existing.length;
+  if (room <= 0) return;
+
+  const note = (formData.get("note") ?? "").toString().trim() || null;
+  const newIds: number[] = [];
+  for (const file of files.slice(0, room)) {
+    if (!isImageFile(file) || file.size > MAX_FILE_BYTES) continue;
+    const url = await uploadFile(file, "inspiration");
+    const { data } = await supabase
+      .from("assets")
+      .insert({ project_id: job.project_id, filename: file.name, local_path: url, kind: "inspiration", media: "image", quality: "good", notes: note })
+      .select("id")
+      .single();
+    if (data?.id) newIds.push(Number(data.id));
+  }
+  if (!newIds.length) return;
+  await supabase
+    .from("jobs")
+    .update({ inspiration_ids: JSON.stringify([...existing, ...newIds]), updated_at: now() })
+    .eq("id", jobId);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
+export async function removeJobInspiration(formData: FormData): Promise<void> {
+  const jobId = Number(formData.get("job_id"));
+  const assetId = Number(formData.get("asset_id"));
+  if (!Number.isFinite(jobId) || !Number.isFinite(assetId)) return;
+  const { data: job } = await supabase.from("jobs").select("inspiration_ids").eq("id", jobId).maybeSingle();
+  if (!job) return;
+  let ids: number[] = [];
+  try { const v = JSON.parse(job.inspiration_ids || "[]"); if (Array.isArray(v)) ids = v.map(Number); } catch { /* ignore */ }
+  await supabase
+    .from("jobs")
+    .update({ inspiration_ids: JSON.stringify(ids.filter((x) => x !== assetId)), updated_at: now() })
+    .eq("id", jobId);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
+export async function setInspirationNote(formData: FormData): Promise<void> {
+  const jobId = Number(formData.get("job_id"));
+  const assetId = Number(formData.get("asset_id"));
+  if (!Number.isFinite(jobId) || !Number.isFinite(assetId)) return;
+  await supabase
+    .from("assets")
+    .update({ notes: (formData.get("note") ?? "").toString().trim() || null })
+    .eq("id", assetId)
+    .eq("kind", "inspiration");
+  revalidatePath(`/jobs/${jobId}`);
+}
+
 export async function removeJobAsset(formData: FormData): Promise<void> {
   const jobId = Number(formData.get("job_id"));
   const assetId = Number(formData.get("asset_id"));

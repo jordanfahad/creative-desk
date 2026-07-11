@@ -9,6 +9,7 @@ import {
   assetWebPath,
   resolveDocUrl,
   jobPlatformKeys,
+  jobInspirationIds,
 } from "@/lib/db";
 import { parseBrief, type Brief } from "@/lib/context";
 import {
@@ -20,6 +21,9 @@ import {
   setDirection,
   uploadJobAsset,
   removeJobAsset,
+  uploadJobInspiration,
+  removeJobInspiration,
+  setInspirationNote,
 } from "@/lib/actions";
 import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS } from "@/lib/platform";
 import { STYLE_PRESETS } from "@/lib/style";
@@ -57,11 +61,74 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
     /* ignore */
   }
   const assets = await getAssetsByIds(assetIds);
+  const inspiration = (await getAssetsByIds(jobInspirationIds(job))).filter((a) => a.media !== "video");
   const logos = await listLogos(job.project_id);
   const briefDocUrl = await resolveDocUrl(job.brief_doc_path);
   const selected = new Set(jobPlatformKeys(job));
   const isOptimize = job.intent === "optimize";
   const isVideoJob = job.media === "video";
+
+  // Step numbers flow top-to-bottom over whichever cards this job type shows.
+  let stepNo = 0;
+  const step = () => ++stepNo;
+
+  const inspirationCard = () => (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>{step()} · Inspiration — “make it like this” (optional)</h3>
+      <p className="small muted" style={{ marginTop: 0 }}>
+        Add up to 3 example creatives whose <strong>look</strong> you want. We borrow their style —
+        light, palette, composition, mood — never their content. Tell each one what to borrow.
+      </p>
+      {inspiration.length > 0 && (
+        <div className="grid cols-3" style={{ marginBottom: 12 }}>
+          {inspiration.map((a) => (
+            <div key={a.id}>
+              <img className="thumb" src={assetWebPath(a.local_path)} alt={a.filename} />
+              <form action={setInspirationNote} style={{ marginTop: 6 }}>
+                <input type="hidden" name="job_id" value={job.id} />
+                <input type="hidden" name="asset_id" value={a.id} />
+                <input
+                  name="note"
+                  defaultValue={a.notes ?? ""}
+                  placeholder="what to borrow — e.g. this color grade & lighting"
+                />
+                <div className="row" style={{ marginTop: 4 }}>
+                  <button className="btn secondary sm" type="submit">
+                    Save note
+                  </button>
+                </div>
+              </form>
+              <form action={removeJobInspiration} style={{ marginTop: 4 }}>
+                <input type="hidden" name="job_id" value={job.id} />
+                <input type="hidden" name="asset_id" value={a.id} />
+                <button className="btn danger sm" type="submit">
+                  Remove
+                </button>
+              </form>
+            </div>
+          ))}
+        </div>
+      )}
+      {inspiration.length < 3 ? (
+        <form action={uploadJobInspiration}>
+          <input type="hidden" name="job_id" value={job.id} />
+          <input type="file" name="file" accept="image/*" multiple required />
+          <div style={{ marginTop: 8 }}>
+            <input name="note" placeholder="what to borrow (optional) — applies to these uploads" />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <button className="btn" type="submit">
+              + Add inspiration
+            </button>
+          </div>
+        </form>
+      ) : (
+        <p className="small muted" style={{ marginBottom: 0 }}>
+          3 of 3 references added — remove one to add another.
+        </p>
+      )}
+    </div>
+  );
 
   // Spend estimate: paid AI generations only — channel re-crops are free.
   const imageAssetCount = assets.filter((a) => a.media !== "video").length;
@@ -105,10 +172,10 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
         </form>
       </div>
 
-      {/* ── 1 · SOURCE (optimize only) ── */}
+      {/* ── SOURCE (optimize only) ── */}
       {isOptimize && (
         <div className="card" style={{ marginTop: 18 }}>
-          <h3 style={{ marginTop: 0 }}>1 · Your {isVideoJob ? "video" : "photos"}</h3>
+          <h3 style={{ marginTop: 0 }}>{step()} · Your {isVideoJob ? "video" : "photos"}</h3>
           <p className="small muted" style={{ marginTop: 0 }}>
             Upload the {isVideoJob ? "clip(s)" : "image(s)"} to fix & optimize — each is
             edited on-brand, cropped to every channel, and logo-stamped.
@@ -145,10 +212,13 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      {/* ── 2 · DIRECTION ── */}
+      {/* ── INSPIRATION (image jobs; optimize flow puts it right after the photos) ── */}
+      {!isVideoJob && isOptimize && inspirationCard()}
+
+      {/* ── DIRECTION ── */}
       <div className="card">
         <h3 style={{ marginTop: 0 }}>
-          {isOptimize ? "2 · What to fix (optional)" : "1 · What do you want?"}
+          {step()} · {isOptimize ? "What to fix (optional)" : "What do you want?"}
         </h3>
         <form action={setDirection}>
           <input type="hidden" name="id" value={job.id} />
@@ -171,9 +241,12 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
         </p>
       </div>
 
-      {/* ── 3 · CHANNELS + settings ── */}
+      {/* ── INSPIRATION (create flow: after the direction it steers) ── */}
+      {!isVideoJob && !isOptimize && inspirationCard()}
+
+      {/* ── CHANNELS + settings ── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{isOptimize ? "3" : "2"} · Channels &amp; output</h3>
+        <h3 style={{ marginTop: 0 }}>{step()} · Channels &amp; output</h3>
         <p className="small muted" style={{ marginTop: 0 }}>
           One creative → every channel you tick. Re-crops are free.
         </p>
@@ -254,9 +327,9 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
         </form>
       </div>
 
-      {/* ── 4 · GENERATE ── */}
+      {/* ── GENERATE ── */}
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>{isOptimize ? "4" : "3"} · Generate</h3>
+        <h3 style={{ marginTop: 0 }}>{step()} · Generate</h3>
         <p className="notice small" style={{ marginBottom: 14 }}>
           {aiCalls === 0
             ? `Resize + brand only — no AI credits used. Delivers ${chWord}.`

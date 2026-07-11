@@ -12,6 +12,7 @@ import {
   getLatestBrief,
   listRenders,
   jobPlatformKeys,
+  jobInspirationIds,
 } from "@/lib/db";
 import { uploadBuffer } from "@/lib/storage";
 import { parseBrief, type Brief } from "@/lib/context";
@@ -100,6 +101,29 @@ export async function POST(req: NextRequest) {
   const assets = await getAssetsByIds(assetIds);
   const imageAssets = assets.filter((a) => a.media !== "video");
   const videoAssets = assets.filter((a) => a.media === "video");
+
+  // Inspiration references — appended to the Kontext inputs as STYLE guides.
+  // The role preamble tells the model which images are content vs. style.
+  const inspirationAssets = (await getAssetsByIds(jobInspirationIds(job))).filter((a) => a.media !== "video");
+  const refUrls = inspirationAssets.map((a) => a.local_path);
+  const refBorrow =
+    inspirationAssets
+      .map((a) => a.notes?.trim())
+      .filter(Boolean)
+      .join("; ") || "their color grade, lighting, composition and overall mood";
+  const refRole = (baseCount: number): string => {
+    if (!refUrls.length) return "";
+    const base =
+      baseCount === 1
+        ? "The FIRST image is the photo to edit — preserve its real people, subject and scene."
+        : `The FIRST ${baseCount} images are the photos to work on — preserve their real people, subjects and scenes.`;
+    const refs =
+      refUrls.length === 1
+        ? "The LAST image is a style reference ONLY"
+        : `The LAST ${refUrls.length} images are style references ONLY`;
+    return `${base} ${refs}: match ${refBorrow}; never copy the reference's people, products, text or logos. `;
+  };
+
   const results: SubmitResult[] = [];
 
   const insertRender = (r: {
@@ -154,20 +178,20 @@ export async function POST(req: NextRequest) {
         const optimized = brief?.shots?.[0]?.prompt;
         const instruction = optimized || job.brief_notes || "Clean up and enhance: fix lighting, balance the composition, remove clutter.";
         if (job.combine === 1 && imageAssets.length > 1) {
-          const urls = imageAssets.map((a) => a.local_path);
+          const urls = [...imageAssets.map((a) => a.local_path), ...refUrls];
           const editPrompt = optimized
-            ? `Combine these photos into one balanced, on-brand composition. ${instruction}`
-            : `Edit and combine these photos on-brand, keep the real subjects. ${instruction} ${brandHint}`;
+            ? `${refRole(imageAssets.length)}Combine the photos into one balanced, on-brand composition. ${instruction}`
+            : `${refRole(imageAssets.length)}Edit and combine the photos on-brand, keep the real subjects. ${instruction} ${brandHint}`;
           const master = await fetchBuf((await editImage(editPrompt, urls, MASTER_ASPECT)).url);
-          await fanOutImage(master, 0, null, { mode: "optimize", combined: imageAssets.length });
+          await fanOutImage(master, 0, null, { mode: "optimize", combined: imageAssets.length, refs: refUrls.length });
         } else {
           const editPrompt = optimized
-            ? instruction
-            : `Edit and enhance this photo on-brand, keep the real subject. ${instruction} ${brandHint}`;
+            ? `${refRole(1)}${instruction}`
+            : `${refRole(1)}Edit and enhance this photo on-brand, keep the real subject. ${instruction} ${brandHint}`;
           for (let i = 0; i < imageAssets.length; i++) {
             try {
-              const master = await fetchBuf((await editImage(editPrompt, [imageAssets[i].local_path], MASTER_ASPECT)).url);
-              await fanOutImage(master, i, imageAssets[i].id, { mode: "optimize", asset_id: imageAssets[i].id });
+              const master = await fetchBuf((await editImage(editPrompt, [imageAssets[i].local_path, ...refUrls], MASTER_ASPECT)).url);
+              await fanOutImage(master, i, imageAssets[i].id, { mode: "optimize", asset_id: imageAssets[i].id, refs: refUrls.length });
             } catch (e) {
               // master generation failed → record a failed deliverable per channel so it's visible
               for (const platform of platforms) {
@@ -183,9 +207,21 @@ export async function POST(req: NextRequest) {
         }
         for (const shot of brief.shots) {
           try {
-            // shot.prompt is already a complete, brand-infused production prompt — use it verbatim.
-            const master = await fetchBuf((await generateImage(shot.prompt, MASTER_IMAGE_SIZE)).url);
-            await fanOutImage(master, shot.index, null, { mode: "create", caption: shot.caption });
+            // shot.prompt is already a complete, brand-infused production prompt — use it
+            // verbatim. With inspiration references, route through the edit model so the
+            // renderer SEES the style it should produce in.
+            const master = refUrls.length
+              ? await fetchBuf(
+                  (
+                    await editImage(
+                      `Create a brand-new image (a fresh scene, not an edit of the reference). The attached image${refUrls.length === 1 ? " is a style reference" : "s are style references"} ONLY: match ${refBorrow}; never copy the reference's people, products, text or logos. ${shot.prompt}`,
+                      refUrls,
+                      MASTER_ASPECT,
+                    )
+                  ).url,
+                )
+              : await fetchBuf((await generateImage(shot.prompt, MASTER_IMAGE_SIZE)).url);
+            await fanOutImage(master, shot.index, null, { mode: "create", caption: shot.caption, refs: refUrls.length });
           } catch (e) {
             for (const platform of platforms) {
               await insertRender({ group: shot.index, sourceAssetId: null, platform: platform.key, status: "failed", error: errMsg(e), meta: { mode: "create" } });

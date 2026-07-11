@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getBrandKit, listGuidelines, getAssetsByIds, type Asset, type Job } from "./db";
+import { getBrandKit, listGuidelines, getAssetsByIds, jobInspirationIds, type Asset, type Job } from "./db";
 import { styleGuidance, styleLabel, BASE_NEGATIVE } from "./style";
 
 // ── The context store ────────────────────────────────────────────────
@@ -13,6 +13,7 @@ import { styleGuidance, styleLabel, BASE_NEGATIVE } from "./style";
 export interface AssembledContext {
   block: string; // the text injected into the model's system prompt
   assets: Asset[]; // resolved source assets for the job
+  inspiration: Asset[]; // resolved style-reference images ("make it like this")
 }
 
 // Max characters of any single guideline injected per request (large brand
@@ -35,6 +36,7 @@ export async function assembleContext(job: Job): Promise<AssembledContext> {
 
   const assetIds = safeJsonArray(job.asset_ids).map(Number).filter(Number.isFinite);
   const assets = await getAssetsByIds(assetIds);
+  const inspiration = (await getAssetsByIds(jobInspirationIds(job))).filter((a) => a.media !== "video");
 
   const lines: string[] = [];
 
@@ -97,7 +99,15 @@ export async function assembleContext(job: Job): Promise<AssembledContext> {
     }
   }
 
-  return { block: lines.join("\n"), assets };
+  if (inspiration.length) {
+    lines.push("");
+    lines.push("# Inspiration references — the LOOK the user wants (style, not content)");
+    for (const a of inspiration) {
+      lines.push(`- [ref #${a.id}] ${a.filename}${a.notes ? ` — borrow: ${a.notes}` : " — borrow: overall look (color grade, lighting, composition, mood)"}`);
+    }
+  }
+
+  return { block: lines.join("\n"), assets, inspiration };
 }
 
 // ── Brief schema ─────────────────────────────────────────────────────
@@ -180,7 +190,12 @@ export function parseBrief(content: string | null): Brief | null {
 // that makes gpt-4o write PRODUCTION-GRADE renderer prompts (not concept notes).
 // The brand palette, voice, CEO directives and creative guidelines are folded
 // into every shot prompt here — that's what makes the output usable and on-brand.
-export function briefSystemPrompt(job: Job, block: string, directorBrief: string): string {
+export function briefSystemPrompt(
+  job: Job,
+  block: string,
+  directorBrief: string,
+  inspiration: Asset[] = [],
+): string {
   const isOptimize = job.intent === "optimize";
   const isVideo = job.media === "video";
   const renderer = isVideo
@@ -207,6 +222,18 @@ export function briefSystemPrompt(job: Job, block: string, directorBrief: string
     styleGuidance(job.style),
     "Apply this style consistently across every shot while staying on-brand.",
     "",
+    ...(inspiration.length
+      ? [
+          "# INSPIRATION REFERENCES — the user attached example creative(s) showing the LOOK they want (you can SEE them in this conversation).",
+          "Study each reference and fold its aesthetic into every shot.prompt: name its color grade, lighting, composition, texture and mood CONCRETELY in your prompt words (the renderer also receives the reference images themselves).",
+          ...inspiration.map(
+            (a, i) => `- Reference ${i + 1} [#${a.id}]: borrow ${a.notes?.trim() || "its overall look — color grade, lighting, composition, mood"}.`,
+          ),
+          "References define STYLE ONLY — never copy their people, products, scenes, text, or logos. The user's own photo/direction defines the content.",
+          "If a reference conflicts with the brand palette, CEO directives or guardrails, the brand wins.",
+          "",
+        ]
+      : []),
     "# HOW TO WRITE EACH shot.prompt (this is the whole job)",
     "Write each prompt as ONE vivid, self-contained paragraph (45-120 words) that nails:",
     "- SUBJECT & wardrobe: real, relatable, diverse people with genuine warm expressions; for dental, clean NATURAL smiles — never exaggerated or unnaturally white teeth.",

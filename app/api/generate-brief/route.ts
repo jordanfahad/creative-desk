@@ -52,10 +52,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Job ${jobId} not found` }, { status: 404 });
   }
 
-  const { block, assets } = await assembleContext(job);
+  const { block, assets, inspiration } = await assembleContext(job);
 
   const directorBrief = (job.brief_doc_text ?? "").trim();
-  const system = briefSystemPrompt(job, block, directorBrief);
+  const system = briefSystemPrompt(job, block, directorBrief, inspiration);
+
+  // Attach the actual images so the model SEES what it's writing prompts for:
+  // the user's source photos first, then the inspiration references, in order.
+  const sourceImages = assets.filter((a) => a.media !== "video").slice(0, 4);
+  const attachedNote =
+    sourceImages.length || inspiration.length
+      ? `Attached images, in order: ${[
+          sourceImages.length ? `${sourceImages.length} source photo(s) [${sourceImages.map((a) => `#${a.id}`).join(", ")}]` : "",
+          inspiration.length ? `${inspiration.length} inspiration reference(s) [${inspiration.map((a) => `#${a.id}`).join(", ")}]` : "",
+        ]
+          .filter(Boolean)
+          .join(", then ")}.`
+      : "";
 
   const userMsg = [
     `Job: ${job.title}`,
@@ -66,11 +79,23 @@ export async function POST(req: NextRequest) {
     assets.length
       ? `Source photo/clip ids to ${job.intent === "optimize" ? "enhance" : "reference"}: ${assets.map((a) => a.id).join(", ")}`
       : "No source assets — text-to-image (source_asset_id = null).",
+    attachedNote,
     "",
     "Write the production-grade prompt(s) now, as the structured brief.",
   ]
     .filter(Boolean)
     .join("\n");
+
+  // Vision content: text first, then source photos, then references (order
+  // matches attachedNote). detail:"low" — style/mood reading needs no zoom.
+  const imageParts = [...sourceImages, ...inspiration].map((a) => ({
+    type: "image_url" as const,
+    image_url: { url: a.local_path, detail: "low" as const },
+  }));
+  const userContent =
+    imageParts.length > 0
+      ? [{ type: "text" as const, text: userMsg }, ...imageParts]
+      : userMsg;
 
   const client = new OpenAI();
 
@@ -83,7 +108,7 @@ export async function POST(req: NextRequest) {
       model: MODEL,
       messages: [
         { role: "system", content: system },
-        { role: "user", content: userMsg },
+        { role: "user", content: userContent },
       ],
       response_format: zodResponseFormat(BriefSchema, "creative_brief"),
     });

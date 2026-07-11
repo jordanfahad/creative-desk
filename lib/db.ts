@@ -72,6 +72,7 @@ export interface Job {
   logo_position: string;
   logo_id: number | null;
   asset_ids: string;
+  inspiration_ids: string;
   status: "draft" | "briefed" | "approved" | "submitted" | "done" | "failed";
   created_at: string;
   updated_at: string;
@@ -204,6 +205,17 @@ export function assetWebPath(path: string): string {
 }
 
 export { resolveDocUrl };
+
+/** Parsed jobs.inspiration_ids — style-reference asset ids ("make it like this"). */
+export function jobInspirationIds(job: Pick<Job, "inspiration_ids">): number[] {
+  try {
+    const v = JSON.parse(job.inspiration_ids || "[]");
+    if (Array.isArray(v)) return v.map(Number).filter(Number.isFinite);
+  } catch {
+    /* fall through */
+  }
+  return [];
+}
 
 export function jobPlatformKeys(job: Job): string[] {
   try {
