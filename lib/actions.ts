@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { supabase } from "./db";
 import { BUCKET } from "./supabase";
 import { getActiveProjectId, PROJECT_COOKIE, slugify } from "./project";
+import { SESSION_COOKIE } from "./session";
 import { uploadBuffer, uploadPrivate, PRIVATE_BUCKET } from "./storage";
 import { parseBrief } from "./context";
 import { extractPdfText } from "./pdf";
@@ -75,6 +76,19 @@ function readSettings(formData: FormData) {
   };
 }
 const now = () => new Date().toISOString();
+
+// ── session ──
+
+export async function signOut(): Promise<void> {
+  (await cookies()).set(SESSION_COOKIE, "", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+  redirect("/login");
+}
 
 // ── brand kit + logo + guidelines ──
 

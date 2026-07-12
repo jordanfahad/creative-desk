@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { listProjects, getActiveProjectId } from "@/lib/project";
-import { switchProject } from "@/lib/actions";
+import { switchProject, signOut } from "@/lib/actions";
+import { SESSION_COOKIE } from "@/lib/session";
 import ProjectSwitcher from "./ProjectSwitcher";
 
 export const metadata = {
@@ -23,6 +25,7 @@ function BrandMark() {
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const [projects, activeId] = await Promise.all([listProjects(), getActiveProjectId()]);
+  const authed = Boolean((await cookies()).get(SESSION_COOKIE)?.value);
 
   return (
     <html lang="en">
@@ -42,6 +45,16 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <Link href="/brand">Brand kit</Link>
           <Link href="/projects">Projects</Link>
           <Link href="/knowledge">Knowledge</Link>
+          {authed && (
+            <form action={signOut} style={{ display: "inline", margin: 0 }}>
+              <button
+                type="submit"
+                style={{ background: "none", border: 0, padding: 0, color: "inherit", font: "inherit", cursor: "pointer", opacity: 0.7 }}
+              >
+                Sign out
+              </button>
+            </form>
+          )}
         </nav>
         <div className="container">{children}</div>
       </body>
