@@ -88,10 +88,15 @@ export async function assembleContext(job: Job): Promise<AssembledContext> {
     }
   }
 
-  if (assets.length) {
+  // Montage curation may only pick PHOTOS — don't offer video-asset ids.
+  const listable =
+    job.media === "video" && job.video_mode === "montage"
+      ? assets.filter((a) => a.media !== "video")
+      : assets;
+  if (listable.length) {
     lines.push("");
     lines.push("# Source assets selected for this job");
-    for (const a of assets) {
+    for (const a of listable) {
       lines.push(
         `- [#${a.id}] ${a.filename} — kind: ${a.kind}, quality: ${a.quality}` +
           (a.notes ? `, notes: ${a.notes}` : ""),
@@ -185,6 +190,31 @@ export function parseBrief(content: string | null): Brief | null {
   return r.success ? r.data : null;
 }
 
+// ── Funnel goals ─────────────────────────────────────────────────────
+// The user picks WHY the creative exists; the prompt engineer curates and
+// writes for that stage. Guardrail-aware (never discounts / medical claims).
+
+export const FUNNEL_GOAL_GUIDANCE: Record<string, { label: string; guidance: string; pacing: string }> = {
+  awareness: {
+    label: "Brand awareness",
+    guidance:
+      "This creative must reach people who do NOT know the clinic yet. Hook emotionally within the FIRST 2 seconds, lead with warm human lifestyle moments over clinical detail, keep energy confident and optimistic, close on the brand mark. NO booking pressure, no hard CTA — the only job is to be remembered and liked.",
+    pacing: "fast, confident cuts — hold each image 1.5–2.2s; total 12–22s",
+  },
+  consideration: {
+    label: "Consideration",
+    guidance:
+      "The viewer already knows the clinic exists and is weighing options. Build TRUST: the team's warmth and expertise, the calm premium space, quality-of-care cues, real-patient comfort. Reassuring, unhurried tone. Close with a soft invitation ('get to know us', 'meet the team') — informative, never pushy.",
+    pacing: "calm, steady — hold each image 2.2–3.0s; total 18–30s",
+  },
+  conversion: {
+    label: "Conversion",
+    guidance:
+      "The viewer is ready to act. Be benefit-forward and specific about what they get, confident and direct while honoring every guardrail (no discounts, no medical-outcome claims). Build to a clear closing call-to-action to BOOK — the end-card carries the brand and the ask; use the clinic boilerplate for contact context.",
+    pacing: "deliberate — hold each image 2.5–3.5s, strongest proof last before the CTA end-card; total 15–28s",
+  },
+};
+
 // ── Prompt-engineer system message ───────────────────────────────────
 // Turns a short human direction + the full brand context into a system prompt
 // that makes gpt-4o write PRODUCTION-GRADE renderer prompts (not concept notes).
@@ -195,15 +225,29 @@ export function briefSystemPrompt(
   block: string,
   directorBrief: string,
   inspiration: Asset[] = [],
+  sourceImageCount = 0,
 ): string {
   const isOptimize = job.intent === "optimize";
   const isVideo = job.media === "video";
-  const renderer = isVideo
-    ? "Kling (image-to-video)"
+  const isMontage = isVideo && job.video_mode === "montage";
+  const goal = job.funnel_goal ? FUNNEL_GOAL_GUIDANCE[job.funnel_goal] : undefined;
+  const renderer = isMontage
+    ? "a deterministic pan/zoom montage engine (uses the real photos as-is)"
+    : isVideo
+      ? "Kling (image-to-video)"
+      : isOptimize
+        ? "FLUX Kontext (edits a real photo)"
+        : "FLUX (text-to-image)";
+  // With few photos, use them all; with many, curate down to the strongest.
+  const montageUse =
+    sourceImageCount > 0 && sourceImageCount <= 4
+      ? `all ${sourceImageCount} attached photo(s)`
+      : `4 to ${Math.min(Math.max(sourceImageCount, 4), 10)} of the attached photos`;
+  const shotCount = isMontage
+    ? `one shot per SELECTED photo (${montageUse})`
     : isOptimize
-      ? "FLUX Kontext (edits a real photo)"
-      : "FLUX (text-to-image)";
-  const shotCount = isOptimize ? "exactly 1 shot" : "1 to 4 shots";
+      ? "exactly 1 shot"
+      : "1 to 4 shots";
 
   return [
     `You are a world-class AI image & video PROMPT ENGINEER and the creative director for ${job.title ? "this" : "a"} premium dental brand. You turn a short human direction into production-grade generation prompts that the fal.ai renderer (${renderer}) renders into POLISHED, ON-BRAND, USABLE marketing creatives. Weak, generic prompts are unacceptable — be specific and cinematic.`,
@@ -215,6 +259,13 @@ export function briefSystemPrompt(
           "# Creative director brief (uploaded PDF) — PRIMARY DIRECTION",
           "Lead with this; every shot must realize it while honoring the guardrails above.",
           directorBrief.slice(0, 12000),
+          "",
+        ]
+      : []),
+    ...(goal
+      ? [
+          `# FUNNEL GOAL: ${goal.label}`,
+          goal.guidance,
           "",
         ]
       : []),
@@ -234,6 +285,22 @@ export function briefSystemPrompt(
           "",
         ]
       : []),
+    ...(isMontage
+      ? [
+          "# THIS IS A PHOTO-MONTAGE VIDEO (a CURATION job, not a render-prompt job)",
+          "The user's real photos are used AS-IS — nothing is generated. You are the editor: the photos you may use are ATTACHED to this conversation, and the user message lists exactly which ids are valid. Your whole job:",
+          `- SELECT the strongest photos for the goal${goal ? ` (${goal.label})` : ""} — drop weak, blurry, near-duplicate or off-brand ones. Use ${montageUse}.`,
+          "- ORDER them as a narrative: the most arresting image FIRST as the hook, proof and warmth in the middle, the strongest closer last.",
+          "- For each selected photo return one shot with: source_asset_id = that photo's id (ONLY ids from the attached-photos list, each id used at most ONCE, never null); duration_seconds = its hold time; motion = exactly one of: zoom-in, zoom-out, pan-left, pan-right (vary them — never the same move twice in a row); prompt = ONE short line saying why this image sits here and what the viewer should feel (NOT a render prompt); caption = a short on-screen text suggestion for the editor; negative = \"\".",
+          "- Set mode = \"dynamic\" for this brief.",
+          `- PACING: ${goal ? goal.pacing : "hold each image 2–3s; total 15–30s"}. A brand end-card is appended automatically after your last shot.`,
+          "- assembly_instructions = the opening hook line, the end-card message, music mood, and the CTA (matched to the goal). post_caption = the post copy for this goal.",
+          "",
+        ]
+      : []),
+    ...(isMontage
+      ? []
+      : [
     "# HOW TO WRITE EACH shot.prompt (this is the whole job)",
     "Write each prompt as ONE vivid, self-contained paragraph (45-120 words) that nails:",
     "- SUBJECT & wardrobe: real, relatable, diverse people with genuine warm expressions; for dental, clean NATURAL smiles — never exaggerated or unnaturally white teeth.",
@@ -260,11 +327,20 @@ export function briefSystemPrompt(
       ? "# VIDEO\nEach shot is ONE ~5s Kling clip. Describe the OPENING FRAME richly (the model animates from it) and set `motion` to a premium, gentle camera move (slow push-in, soft pan, subtle parallax) plus natural subject motion. duration_seconds = 5."
       : "# STILLS\nEach shot is one still image. motion = \"\", duration_seconds = 0.",
     "",
+      ]),
     "# NON-NEGOTIABLE",
     `- Honor EVERY CEO directive and creative guideline above — they outrank your own taste.`,
     "- Respect every hard guardrail. No medical-outcome claims, ever.",
-    isOptimize ? "- Reference each source asset id in source_asset_id." : "- source_asset_id = null (text-to-image).",
-    `- Set each shot's \`negative\` to a concise avoid-list that EXTENDS this baseline (add anything specific to the brief/guardrails): ${BASE_NEGATIVE}`,
+    isMontage
+      ? "- Every shot's source_asset_id MUST be one of the listed source photo ids; motion MUST be one of zoom-in | zoom-out | pan-left | pan-right."
+      : isOptimize
+        ? "- Reference each source asset id in source_asset_id."
+        : "- source_asset_id = null (text-to-image).",
+    ...(isMontage
+      ? []
+      : [
+          `- Set each shot's \`negative\` to a concise avoid-list that EXTENDS this baseline (add anything specific to the brief/guardrails): ${BASE_NEGATIVE}`,
+        ]),
     "",
     `Return ${shotCount} in the structured brief. concept = one line on the idea. post_caption = a short on-brand caption (no discounts/claims). assembly_instructions = how to finish (corner logo, caption, music mood).`,
   ].join("\n");

@@ -8,12 +8,14 @@ interface Props {
   status: string;
   intent: "optimize" | "create";
   media: "image" | "video";
+  videoMode?: string;
   channels: number;
   hasBrief: boolean;
   assetCount: number;
+  imageAssetCount?: number;
 }
 
-export default function JobActions({ jobId, status, intent, media, channels, hasBrief, assetCount }: Props) {
+export default function JobActions({ jobId, status, intent, media, videoMode, channels, hasBrief, assetCount, imageAssetCount }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -66,11 +68,16 @@ export default function JobActions({ jobId, status, intent, media, channels, has
   const rendering = status === "submitted";
 
   // Readiness — gate the Generate button so a premature click can't 400.
+  const isMontage = media === "video" && videoMode === "montage";
   const reasons: string[] = [];
   if (channels === 0) reasons.push("tick at least one channel");
-  if (intent === "create" && !hasBrief) reasons.push("optimize the prompt first");
-  if (intent === "optimize" && assetCount === 0)
-    reasons.push(`add a ${media === "video" ? "video" : "photo"} to optimize`);
+  if (isMontage) {
+    if ((imageAssetCount ?? 0) === 0) reasons.push("add photos for the montage");
+  } else {
+    if (intent === "create" && !hasBrief) reasons.push("optimize the prompt first");
+    if (intent === "optimize" && assetCount === 0)
+      reasons.push(`add a ${media === "video" ? "video" : "photo"} to optimize`);
+  }
   const notReady = reasons.length > 0;
 
   return (
@@ -114,10 +121,13 @@ export default function JobActions({ jobId, status, intent, media, channels, has
         </p>
       ) : (
         <p className="small muted" style={{ marginTop: 10 }}>
-          {hasBrief
-            ? "Renders the AI-optimized prompt to every selected channel."
-            : `Tip: click ✨ Optimize prompt first — it turns your direction into a brand-aligned, production-grade prompt for much better ${media}s.`}{" "}
-          Uses fal credits.
+          {isMontage
+            ? hasBrief
+              ? "Assembles the AI-curated montage and delivers it to every selected channel. No AI render credits."
+              : "Tip: click ✨ Optimize prompt first — the AI picks the strongest photos, their order and pacing for your goal. (Without it, all photos play in upload order.) No AI render credits."
+            : hasBrief
+              ? "Renders the AI-optimized prompt to every selected channel. Uses fal credits."
+              : `Tip: click ✨ Optimize prompt first — it turns your direction into a brand-aligned, production-grade prompt for much better ${media}s. Uses fal credits.`}
         </p>
       )}
 

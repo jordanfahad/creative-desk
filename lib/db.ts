@@ -63,7 +63,9 @@ export interface Job {
   intent: "optimize" | "create";
   media: "image" | "video";
   platforms: string;
-  video_mode: "passthrough" | "ai_enhance" | "animate" | "generate";
+  video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage";
+  /** Funnel stage steering the AI brief: awareness | consideration | conversion | null. */
+  funnel_goal: string | null;
   image_mode: "text" | "edit" | "generate";
   style: string;
   combine: number;

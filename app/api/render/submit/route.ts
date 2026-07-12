@@ -19,6 +19,7 @@ import { parseBrief, type Brief } from "@/lib/context";
 import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
+import { buildMontageMaster, normalizeMotion, type MontageShot } from "@/lib/montage";
 import { platformOf, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
 import { BASE_NEGATIVE } from "@/lib/style";
 
@@ -70,6 +71,9 @@ export async function POST(req: NextRequest) {
 
   const briefRow = await getLatestBrief(jobId);
   const brief: Brief | null = briefRow ? parseBrief(briefRow.content) : null;
+  // Briefs are mode-specific: a montage brief is a curation plan, not a render
+  // prompt. Never cross the streams when the user switched video modes.
+  const briefIsMontage = (briefRow?.model ?? "").includes("+montage");
 
   const platforms: Platform[] = jobPlatformKeys(job).map(platformOf);
   if (!platforms.length) {
@@ -232,7 +236,78 @@ export async function POST(req: NextRequest) {
       }
     } else {
       // ───────────── VIDEO ─────────────
-      if (job.intent === "optimize" && job.video_mode === "passthrough") {
+      if (job.video_mode === "montage") {
+        // Photo montage: real photos → Ken Burns master (no AI render credits),
+        // then the standard per-channel crop + logo. Curation comes from the
+        // brief when present (selection/order/hold/motion); otherwise every
+        // uploaded photo plays for 2.5s with varied motion.
+        if (!imageAssets.length) {
+          return NextResponse.json({ error: "Upload photos to build the montage from." }, { status: 400 });
+        }
+        const byId = new Map(imageAssets.map((a) => [a.id, a]));
+        let plan: MontageShot[] = [];
+        if (briefIsMontage && brief?.shots?.length) {
+          const seen = new Set<number>();
+          for (let i = 0; i < brief.shots.length; i++) {
+            const s = brief.shots[i];
+            const a = s.source_asset_id != null ? byId.get(s.source_asset_id) : undefined;
+            if (!a || seen.has(a.id)) continue; // only real, unrepeated photos on this job
+            seen.add(a.id);
+            plan.push({
+              imageUrl: a.local_path,
+              holdSeconds: s.duration_seconds > 0 ? s.duration_seconds : 2.5,
+              motion: normalizeMotion(s.motion, i),
+            });
+          }
+        }
+        if (!plan.length) {
+          plan = imageAssets.map((a, i) => ({ imageUrl: a.local_path, holdSeconds: 2.5, motion: normalizeMotion(null, i) }));
+        }
+        // Bound the montage: ≤10 shots and ≤36s of photos, so the master renders
+        // within the serverless budget and fits short-video channel caps.
+        plan = plan.slice(0, 10);
+        const MAX_PHOTO_SECONDS = 36;
+        let running = 0;
+        plan = plan.filter((p, idx) => {
+          const hold = Math.min(Math.max(p.holdSeconds, 1.2), 6);
+          if (idx > 0 && running + hold > MAX_PHOTO_SECONDS) return false;
+          running += hold;
+          return true;
+        });
+        const END_CARD_SECONDS = 2.2;
+        const withEndCard = Boolean(logoOpts.logoEnabled && logoOpts.logoPath);
+        const photoSeconds = running;
+        const master = await buildMontageMaster(plan, {
+          endCard: withEndCard
+            ? { logoUrl: logoOpts.logoPath as string, bgColor: colors[0] || "#1F3A5F", holdSeconds: END_CARD_SECONDS }
+            : null,
+        });
+        // write the master once, then finish per channel (crop + corner logo)
+        const dir = join(tmpdir(), "creative-desk");
+        await mkdir(dir, { recursive: true });
+        const masterPath = join(dir, `montage-${jobId}-${randomUUID().slice(0, 6)}.mp4`);
+        await writeFile(masterPath, master);
+        try {
+          for (const platform of platforms) {
+            try {
+              const url = await finishVideoToStorage(masterPath, jobId, 0, platform, {
+                ...logoOpts,
+                // respect the channel's duration cap (e.g. 60s Reels ads)
+                trim: platform.maxDurationSeconds ? { duration: platform.maxDurationSeconds } : undefined,
+                // the baked end-card already carries the logo — hide the corner mark there
+                logoEnableBefore: withEndCard ? photoSeconds : undefined,
+              });
+              await insertRender({ group: 0, sourceAssetId: null, platform: platform.key, status: "completed", result_url: url, meta: { mode: "montage", images: plan.length } });
+              results.push({ group: 0, platform: platform.key, status: "completed" });
+            } catch (e) {
+              await insertRender({ group: 0, sourceAssetId: null, platform: platform.key, status: "failed", error: errMsg(e), meta: { mode: "montage" } });
+              results.push({ group: 0, platform: platform.key, status: "failed", error: errMsg(e) });
+            }
+          }
+        } finally {
+          await unlink(masterPath).catch(() => {});
+        }
+      } else if (job.intent === "optimize" && job.video_mode === "passthrough") {
         if (!videoAssets.length) {
           return NextResponse.json({ error: "Upload a video to optimize." }, { status: 400 });
         }
@@ -249,7 +324,8 @@ export async function POST(req: NextRequest) {
           }
         }
       } else {
-        const shot0 = brief?.shots?.[0];
+        // Kling path: a montage curation brief must never become a Kling prompt.
+        const shot0 = briefIsMontage ? undefined : brief?.shots?.[0];
         const optimized = shot0?.prompt;
         const motion = shot0?.motion ? ` Camera/motion: ${shot0.motion}.` : "";
         // optimized prompt is brand-rich → use verbatim (+ motion); else wrap raw direction.
@@ -298,14 +374,22 @@ async function finishVideoToStorage(
   jobId: number,
   group: number,
   platform: Platform,
-  logoOpts: { logoPath: string | null; logoEnabled: boolean; logoPosition: LogoPosition },
+  logoOpts: {
+    logoPath: string | null;
+    logoEnabled: boolean;
+    logoPosition: LogoPosition;
+    trim?: { start?: number; duration?: number };
+    logoEnableBefore?: number;
+  },
 ): Promise<string> {
   const dir = join(tmpdir(), "creative-desk");
   await mkdir(dir, { recursive: true });
   const out = join(dir, `${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`);
-  await finishVideo(inputUrl, out, { platform, ...logoOpts });
-  const buf = await readFile(out);
-  const url = await uploadBuffer(`renders/${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
-  await unlink(out).catch(() => {});
-  return url;
+  try {
+    await finishVideo(inputUrl, out, { platform, ...logoOpts });
+    const buf = await readFile(out);
+    return await uploadBuffer(`renders/${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
+  } finally {
+    await unlink(out).catch(() => {});
+  }
 }

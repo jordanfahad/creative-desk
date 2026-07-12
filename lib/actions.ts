@@ -15,7 +15,8 @@ import { STYLE_KEYS } from "./style";
 
 const INTENTS = new Set(["optimize", "create"]);
 const MEDIAS = new Set(["image", "video"]);
-const VIDEO_MODES = new Set(["passthrough", "ai_enhance", "animate", "generate"]);
+const VIDEO_MODES = new Set(["passthrough", "ai_enhance", "animate", "generate", "montage"]);
+const FUNNEL_GOALS = new Set(["awareness", "consideration", "conversion"]);
 const GUIDELINE_SOURCES = new Set(["creative", "ceo", "general"]);
 
 const MAX_FILE_BYTES = 60 * 1024 * 1024;
@@ -225,7 +226,9 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
   const newIds: number[] = [];
   for (const file of files.slice(0, MAX_FILES_PER_UPLOAD)) {
     const m = mediaOf(file);
-    if (!m || m !== job.media || file.size > MAX_FILE_BYTES) continue;
+    // Video jobs also accept IMAGES — montage sources and animate seed frames.
+    const allowed = m === job.media || (job.media === "video" && m === "image");
+    if (!m || !allowed || file.size > MAX_FILE_BYTES) continue;
     const url = await uploadFile(file, "assets");
     const { data } = await supabase
       .from("assets")
@@ -460,7 +463,12 @@ export async function setProduction(formData: FormData): Promise<void> {
 export async function setDirection(formData: FormData): Promise<void> {
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return;
-  await supabase.from("jobs").update({ brief_notes: (formData.get("brief_notes") ?? "").toString().trim() || null, updated_at: now() }).eq("id", id);
+  const goalRaw = (formData.get("funnel_goal") ?? "").toString();
+  await supabase.from("jobs").update({
+    brief_notes: (formData.get("brief_notes") ?? "").toString().trim() || null,
+    funnel_goal: FUNNEL_GOALS.has(goalRaw) ? goalRaw : null,
+    updated_at: now(),
+  }).eq("id", id);
   revalidatePath(`/jobs/${id}`);
 }
 

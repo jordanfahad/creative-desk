@@ -67,6 +67,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
   const selected = new Set(jobPlatformKeys(job));
   const isOptimize = job.intent === "optimize";
   const isVideoJob = job.media === "video";
+  const isMontage = isVideoJob && job.video_mode === "montage";
 
   // Step numbers flow top-to-bottom over whichever cards this job type shows.
   let stepNo = 0;
@@ -133,7 +134,8 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
   // Spend estimate: paid AI generations only — channel re-crops are free.
   const imageAssetCount = assets.filter((a) => a.media !== "video").length;
   let aiCalls = 0;
-  if (!isOptimize) aiCalls = brief ? brief.shots.length : 0;
+  if (isMontage) aiCalls = 0; // deterministic pan/zoom render — no AI credits
+  else if (!isOptimize) aiCalls = brief ? brief.shots.length : 0;
   else if (!isVideoJob) aiCalls = job.combine === 1 ? (imageAssetCount ? 1 : 0) : imageAssetCount;
   else aiCalls = job.video_mode === "passthrough" ? 0 : 1;
   const ch = selected.size;
@@ -172,13 +174,14 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
         </form>
       </div>
 
-      {/* ── SOURCE (optimize only) ── */}
-      {isOptimize && (
+      {/* ── SOURCE (optimize jobs + montage videos) ── */}
+      {(isOptimize || isMontage) && (
         <div className="card" style={{ marginTop: 18 }}>
-          <h3 style={{ marginTop: 0 }}>{step()} · Your {isVideoJob ? "video" : "photos"}</h3>
+          <h3 style={{ marginTop: 0 }}>{step()} · Your {isVideoJob && !isMontage ? "video" : "photos"}</h3>
           <p className="small muted" style={{ marginTop: 0 }}>
-            Upload the {isVideoJob ? "clip(s)" : "image(s)"} to fix & optimize — each is
-            edited on-brand, cropped to every channel, and logo-stamped.
+            {isMontage
+              ? "Upload the photos for the montage (up to ~10). The AI curates which to use, their order and pacing — then they're assembled into one branded video, cropped to every channel."
+              : `Upload the ${isVideoJob ? "clip(s)" : "image(s)"} to fix & optimize — each is edited on-brand, cropped to every channel, and logo-stamped.`}
           </p>
           {assets.length > 0 && (
             <div className="grid cols-3" style={{ marginBottom: 12 }}>
@@ -202,10 +205,10 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
           )}
           <form action={uploadJobAsset}>
             <input type="hidden" name="job_id" value={job.id} />
-            <input type="file" name="file" accept={isVideoJob ? "video/*" : "image/*"} multiple required />
+            <input type="file" name="file" accept={isVideoJob && !isMontage ? "video/*" : "image/*"} multiple required />
             <div style={{ marginTop: 10 }}>
               <button className="btn" type="submit">
-                + Add {isVideoJob ? "video" : "photos"}
+                + Add {isVideoJob && !isMontage ? "video" : "photos"}
               </button>
             </div>
           </form>
@@ -226,12 +229,23 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
             name="brief_notes"
             defaultValue={job.brief_notes ?? ""}
             placeholder={
-              isOptimize
-                ? "e.g. brighten, declutter the desk, warmer tone — or leave blank for a clean enhance"
-                : "e.g. calm reception shots that build trust"
+              isMontage
+                ? "e.g. showcase the Lane E lifestyle — calm, premium, human"
+                : isOptimize
+                  ? "e.g. brighten, declutter the desk, warmer tone — or leave blank for a clean enhance"
+                  : "e.g. calm reception shots that build trust"
             }
           />
-          <button className="btn secondary sm" type="submit" style={{ marginTop: 8 }}>
+          <div className="row" style={{ gap: 6, marginTop: 10 }}>
+            <span className="small muted">goal</span>
+            <select name="funnel_goal" defaultValue={job.funnel_goal ?? ""} style={{ width: "auto" }}>
+              <option value="">General / not set</option>
+              <option value="awareness">Brand awareness — be remembered, no hard sell</option>
+              <option value="consideration">Consideration — build trust, soft invite</option>
+              <option value="conversion">Conversion — drive bookings, clear CTA</option>
+            </select>
+          </div>
+          <button className="btn secondary sm" type="submit" style={{ marginTop: 10 }}>
             Save direction
           </button>
         </form>
@@ -317,6 +331,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                 <select name="video_mode" defaultValue={job.video_mode} style={{ width: "auto" }}>
                   {isOptimize && <option value="passthrough">size + brand only (no AI)</option>}
                   <option value="animate">animate / generate (AI)</option>
+                  <option value="montage">photo montage — images → video (no AI credits)</option>
                 </select>
               </div>
             )}
@@ -340,9 +355,11 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
           status={job.status}
           intent={job.intent}
           media={job.media}
+          videoMode={job.video_mode}
           channels={selected.size}
           hasBrief={!!brief}
           assetCount={assets.length}
+          imageAssetCount={imageAssetCount}
         />
       </div>
 

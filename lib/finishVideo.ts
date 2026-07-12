@@ -14,6 +14,9 @@ const FFMPEG = ffmpegStatic as unknown as string;
 
 export interface VideoFinishOpts extends FinishOpts {
   trim?: { start?: number; duration?: number };
+  /** Hide the corner logo after this many seconds (e.g. while a baked brand
+   *  end-card is on screen, so the logo isn't shown twice). */
+  logoEnableBefore?: number;
 }
 
 export async function finishVideo(
@@ -58,7 +61,11 @@ export async function finishVideo(
     const pos = opts.logoPosition ?? "bottom-right";
     const x = pos.includes("left") ? `${margin}` : `main_w-overlay_w-${margin}`;
     const y = pos.includes("top") ? `${margin}` : `main_h-overlay_h-${margin}`;
-    filter += `[bg];[1:v]scale=${lw}:-1[lg];[bg][lg]overlay=${x}:${y}[v]`;
+    const enable =
+      opts.logoEnableBefore != null && opts.logoEnableBefore > 0
+        ? `:enable='lt(t,${opts.logoEnableBefore.toFixed(2)})'`
+        : "";
+    filter += `[bg];[1:v]scale=${lw}:-1[lg];[bg][lg]overlay=${x}:${y}${enable}[v]`;
   } else {
     filter += `[v]`;
   }

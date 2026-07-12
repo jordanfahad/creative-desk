@@ -53,13 +53,21 @@ export async function POST(req: NextRequest) {
   }
 
   const { block, assets, inspiration } = await assembleContext(job);
-
-  const directorBrief = (job.brief_doc_text ?? "").trim();
-  const system = briefSystemPrompt(job, block, directorBrief, inspiration);
+  if (job.media === "video" && job.video_mode === "montage" && !assets.some((a) => a.media !== "video")) {
+    return NextResponse.json(
+      { error: "Upload the montage photos first — the AI curates from what you upload." },
+      { status: 400 },
+    );
+  }
 
   // Attach the actual images so the model SEES what it's writing prompts for:
   // the user's source photos first, then the inspiration references, in order.
-  const sourceImages = assets.filter((a) => a.media !== "video").slice(0, 4);
+  // Montage jobs are CURATION jobs — the model must see the whole set.
+  const isMontage = job.media === "video" && job.video_mode === "montage";
+  const sourceImages = assets.filter((a) => a.media !== "video").slice(0, isMontage ? 12 : 4);
+
+  const directorBrief = (job.brief_doc_text ?? "").trim();
+  const system = briefSystemPrompt(job, block, directorBrief, inspiration, sourceImages.length);
   const attachedNote =
     sourceImages.length || inspiration.length
       ? `Attached images, in order: ${[
@@ -72,13 +80,19 @@ export async function POST(req: NextRequest) {
 
   const userMsg = [
     `Job: ${job.title}`,
+    job.funnel_goal ? `Funnel goal: ${job.funnel_goal}` : "",
     job.goal ? `Goal: ${job.goal}` : "",
+    isMontage
+      ? `This is a PHOTO-MONTAGE video: curate the attached source photos (select, order, pace) per the system instructions.`
+      : "",
     job.brief_notes
       ? `Human direction (turn THIS into great prompts): ${job.brief_notes}`
       : "No direction given — infer a strong, on-brand idea from the brand context.",
-    assets.length
-      ? `Source photo/clip ids to ${job.intent === "optimize" ? "enhance" : "reference"}: ${assets.map((a) => a.id).join(", ")}`
-      : "No source assets — text-to-image (source_asset_id = null).",
+    isMontage
+      ? `Curate ONLY from these attached photo ids (any other id is invalid): ${sourceImages.map((a) => a.id).join(", ")}`
+      : assets.length
+        ? `Source photo/clip ids to ${job.intent === "optimize" ? "enhance" : "reference"}: ${assets.map((a) => a.id).join(", ")}`
+        : "No source assets — text-to-image (source_asset_id = null).",
     attachedNote,
     "",
     "Write the production-grade prompt(s) now, as the structured brief.",
@@ -87,10 +101,12 @@ export async function POST(req: NextRequest) {
     .join("\n");
 
   // Vision content: text first, then source photos, then references (order
-  // matches attachedNote). detail:"low" — style/mood reading needs no zoom.
+  // matches attachedNote). Montage curation judges sharpness/quality → "auto";
+  // style/mood reading for other jobs needs no zoom → "low".
+  const detail = isMontage ? ("auto" as const) : ("low" as const);
   const imageParts = [...sourceImages, ...inspiration].map((a) => ({
     type: "image_url" as const,
-    image_url: { url: a.local_path, detail: "low" as const },
+    image_url: { url: a.local_path, detail },
   }));
   const userContent =
     imageParts.length > 0
@@ -127,12 +143,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `OpenAI request failed: ${message}` }, { status: 502 });
   }
 
-  const creditEstimate = estimateCredits(brief);
+  // Montage renders are deterministic (no fal credits); tag the brief kind so
+  // the renderer never feeds a curation brief to Kling (or vice versa).
+  const creditEstimate = isMontage ? 0 : estimateCredits(brief);
+  const briefModel = isMontage ? `${MODEL}+montage` : MODEL;
 
   // Persist the brief and advance the job to 'briefed'.
   const { data: inserted } = await supabase
     .from("briefs")
-    .insert({ job_id: jobId, content: JSON.stringify(brief), credit_estimate: creditEstimate, model: MODEL })
+    .insert({ job_id: jobId, content: JSON.stringify(brief), credit_estimate: creditEstimate, model: briefModel })
     .select("id")
     .single();
   await supabase
