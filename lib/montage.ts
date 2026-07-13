@@ -7,8 +7,11 @@ import sharp from "sharp";
 import ffmpegStatic from "ffmpeg-static";
 import { loadLogoBuffer } from "./finish";
 
-// Photo-montage rendering: N still photos → one cinematic Ken Burns video
-// (pan/zoom per shot, hard cuts, global fade in/out, optional brand end-card).
+// Photo-montage rendering: N still photos → one clean brand video. Each photo
+// is letterboxed WHOLE and held STATIC, with a smooth crossfade dissolve to the
+// next (plus a global fade in/out and an optional brand end-card). No per-image
+// zoom/pan — a slow zoom on a finished, text-bearing post stair-steps into a
+// visible "vibration", and motion isn't right for designed graphics anyway.
 // Deterministic ffmpeg — no AI render credits. The master is SQUARE (like the
 // image pipeline) so finishVideo() can cover-crop it to every channel ratio.
 // FFMPEG_PATH overrides the bundled binary (local dev/test).
@@ -20,14 +23,8 @@ const FFMPEG = process.env.FFMPEG_PATH || (ffmpegStatic as unknown as string);
 const MASTER = 1440;
 const SRC = 2160;
 const FPS = 30;
-/**
- * Peak zoom for the Ken Burns move. Kept tiny and CENTER-ONLY (no panning) so a
- * finished, text-bearing post is never slid off-frame or visibly cropped — the
- * move reads as a slow, premium breath, not a camera chase. Content is matted
- * with a small safe margin (SAFE) so even this zoom only ever eats the blurred
- * background, never the artwork itself.
- */
-const ZOOM = 1.05;
+/** Crossfade dissolve between shots (seconds), capped to half the shortest hold. */
+const XFADE = 0.6;
 /** Fraction of the frame the artwork occupies (the rest is a soft matte). */
 const SAFE = 0.92;
 
@@ -56,25 +53,6 @@ export interface MontageShot {
 export interface MontageOpts {
   /** Optional closing brand card: logo centered on a brand-color field. */
   endCard?: { logoUrl: string; bgColor?: string; holdSeconds?: number } | null;
-}
-
-function zoompanExprs(motion: MontageMotion, frames: number): { z: string; x: string; y: string } {
-  const span = (ZOOM - 1).toFixed(4);
-  // ALWAYS keep the crop window centered — panning a composed post (with a text
-  // card / logo baked in) drags that text off the edge, which is exactly the
-  // "cut from everywhere" look. So pan-* degrade to a gentle center zoom too;
-  // only the direction (in vs out) varies.
-  const center = { x: "iw/2-(iw/zoom/2)", y: "ih/2-(ih/zoom/2)" };
-  const zoomIn = `1+(${span}*on/${frames})`;
-  const zoomOut = `${ZOOM}-(${span}*on/${frames})`;
-  switch (motion) {
-    case "zoom-in":
-    case "pan-right":
-      return { z: zoomIn, ...center };
-    case "zoom-out":
-    case "pan-left":
-      return { z: zoomOut, ...center };
-  }
 }
 
 /**
@@ -177,44 +155,66 @@ export async function buildMontageMaster(shots: MontageShot[], opts: MontageOpts
       }
     }
 
-    // 2 · one Ken Burns clip per photo (identical codec/size/fps → copy-concat)
-    const clips: string[] = [];
-    for (let i = 0; i < frames.length; i++) {
-      const f = frames[i];
-      const hold = Math.min(Math.max(f.holdSeconds, 1.2), 6);
-      const nFrames = Math.max(2, Math.round(hold * FPS));
-      const e = zoompanExprs(f.motion, nFrames);
-      const clip = join(dir, `clip-${i}.mp4`);
+    // 2 · assemble in ONE ffmpeg graph: each still is held STATIC for its hold,
+    // dissolving into the next with a crossfade (no zoom/pan → no vibration),
+    // then a global fade in/out. Every still is scaled to the square master at a
+    // fixed fps so the xfade chain lines up.
+    const holds = frames.map((f) => Math.min(Math.max(f.holdSeconds, 1.2), 6));
+    const n = frames.length;
+    const outPath = join(dir, "master.mp4");
+
+    if (n === 1) {
       await runFfmpeg([
         "-y",
-        "-i", f.path,
-        "-filter_complex",
-        `zoompan=z='${e.z}':x='${e.x}':y='${e.y}':d=${nFrames}:s=${MASTER}x${MASTER}:fps=${FPS},format=yuv420p`,
-        "-frames:v", String(nFrames),
+        "-loop", "1", "-t", holds[0].toFixed(3), "-i", frames[0].path,
+        "-vf", `scale=${MASTER}:${MASTER},setsar=1,fps=${FPS},format=yuv420p,fade=t=in:st=0:d=0.5,fade=t=out:st=${Math.max(0, holds[0] - 0.7).toFixed(2)}:d=0.7`,
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "20",
-        clip,
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        outPath,
       ]);
-      clips.push(clip);
+      return await readFile(outPath);
     }
 
-    // 3 · concat (stream copy — all clips share codec/size/fps)
-    const listPath = join(dir, "list.txt");
-    await writeFile(listPath, clips.map((c) => `file '${c}'`).join("\n"));
-    const rawPath = join(dir, "master-raw.mp4");
-    await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listPath, "-c", "copy", rawPath]);
+    // Crossfade ≤ half the shortest hold, so even a short shot fully appears.
+    const T = Math.min(XFADE, Math.min(...holds) * 0.5);
+    const inputs: string[] = [];
+    for (let i = 0; i < n; i++) {
+      // give each input a little tail past its hold so the xfade always has frames
+      inputs.push("-loop", "1", "-t", (holds[i] + T + 0.1).toFixed(3), "-i", frames[i].path);
+    }
+    const parts: string[] = [];
+    for (let i = 0; i < n; i++) {
+      parts.push(`[${i}:v]scale=${MASTER}:${MASTER},setsar=1,fps=${FPS},format=yuv420p[v${i}]`);
+    }
+    // Chain xfades; each offset is where in the accumulated timeline the
+    // dissolve begins (cumulative length so far minus one transition).
+    let last = "v0";
+    let acc = holds[0];
+    for (let i = 1; i < n; i++) {
+      const out = i === n - 1 ? "xf" : `x${i}`;
+      parts.push(
+        `[${last}][v${i}]xfade=transition=fade:duration=${T.toFixed(3)}:offset=${(acc - T).toFixed(3)}[${out}]`,
+      );
+      last = out;
+      acc = acc + holds[i] - T;
+    }
+    const total = acc; // = sum(holds) - (n-1)*T
+    parts.push(
+      `[${last}]fade=t=in:st=0:d=0.5,fade=t=out:st=${Math.max(0, total - 0.7).toFixed(2)}:d=0.7[vout]`,
+    );
 
-    // 4 · global fade in/out + faststart
-    const total = frames.reduce((a, f) => a + Math.min(Math.max(f.holdSeconds, 1.2), 6), 0);
-    const outPath = join(dir, "master.mp4");
     await runFfmpeg([
       "-y",
-      "-i", rawPath,
-      "-vf", `fade=t=in:st=0:d=0.5,fade=t=out:st=${Math.max(0, total - 0.7).toFixed(2)}:d=0.7`,
+      ...inputs,
+      "-filter_complex", parts.join(";"),
+      "-map", "[vout]",
       "-c:v", "libx264",
       "-preset", "veryfast",
       "-crf", "20",
+      "-pix_fmt", "yuv420p",
       "-movflags", "+faststart",
       outPath,
     ]);
