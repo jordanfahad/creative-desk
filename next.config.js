@@ -11,6 +11,8 @@ const nextConfig = {
   outputFileTracingIncludes: {
     "/api/render/submit": ["./node_modules/@img/**", "./node_modules/ffmpeg-static/**"],
     "/api/render/poll": ["./node_modules/@img/**", "./node_modules/ffmpeg-static/**"],
+    // sharp is used to downscale images inline for the vision brief call.
+    "/api/generate-brief": ["./node_modules/@img/**"],
   },
   experimental: {
     // Default is 1MB, which rejects photo/PDF uploads via server actions.

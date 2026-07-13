@@ -1,10 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
+import sharp from "sharp";
 import { supabase, getJob } from "@/lib/db";
 import { assembleContext, briefSystemPrompt, BriefSchema, type Brief } from "@/lib/context";
 
 export const runtime = "nodejs";
+
+/**
+ * Downscale a stored image to a small inline JPEG (data URL) for the vision
+ * call. gpt-4o otherwise fetches each image_url itself and times out on large
+ * originals ("Timeout while downloading …"); sending the bytes inline removes
+ * that fetch entirely, and ~1024px is plenty for the model to judge a photo.
+ * Falls back to the public URL if the fetch/resize fails.
+ */
+async function toInlineImage(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return url;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const small = await sharp(buf)
+      .rotate()
+      .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 72 })
+      .toBuffer();
+    return `data:image/jpeg;base64,${small.toString("base64")}`;
+  } catch {
+    return url;
+  }
+}
 
 // The brief route (OpenAI). Turns a job + re-injected brand context into a
 // structured creative brief (static or dynamic). FIRES NO RENDERS. Returns the
@@ -101,12 +125,13 @@ export async function POST(req: NextRequest) {
     .join("\n");
 
   // Vision content: text first, then source photos, then references (order
-  // matches attachedNote). Montage curation judges sharpness/quality → "auto";
-  // style/mood reading for other jobs needs no zoom → "low".
-  const detail = isMontage ? ("auto" as const) : ("low" as const);
-  const imageParts = [...sourceImages, ...inspiration].map((a) => ({
+  // matches attachedNote). Images are downscaled + inlined as base64 so OpenAI
+  // never fetches the (large) storage URLs itself. "low" detail is enough at
+  // this size and keeps the request lean even with a full montage set.
+  const inlined = await Promise.all([...sourceImages, ...inspiration].map((a) => toInlineImage(a.local_path)));
+  const imageParts = inlined.map((url) => ({
     type: "image_url" as const,
-    image_url: { url: a.local_path, detail },
+    image_url: { url, detail: "low" as const },
   }));
   const userContent =
     imageParts.length > 0
