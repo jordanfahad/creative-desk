@@ -20,8 +20,16 @@ const FFMPEG = process.env.FFMPEG_PATH || (ffmpegStatic as unknown as string);
 const MASTER = 1440;
 const SRC = 2160;
 const FPS = 30;
-/** Peak zoom for the Ken Burns move — subtle, premium, never seasick. */
-const ZOOM = 1.12;
+/**
+ * Peak zoom for the Ken Burns move. Kept tiny and CENTER-ONLY (no panning) so a
+ * finished, text-bearing post is never slid off-frame or visibly cropped — the
+ * move reads as a slow, premium breath, not a camera chase. Content is matted
+ * with a small safe margin (SAFE) so even this zoom only ever eats the blurred
+ * background, never the artwork itself.
+ */
+const ZOOM = 1.05;
+/** Fraction of the frame the artwork occupies (the rest is a soft matte). */
+const SAFE = 0.92;
 
 export const MONTAGE_MOTIONS = ["zoom-in", "zoom-out", "pan-left", "pan-right"] as const;
 export type MontageMotion = (typeof MONTAGE_MOTIONS)[number];
@@ -52,18 +60,49 @@ export interface MontageOpts {
 
 function zoompanExprs(motion: MontageMotion, frames: number): { z: string; x: string; y: string } {
   const span = (ZOOM - 1).toFixed(4);
+  // ALWAYS keep the crop window centered — panning a composed post (with a text
+  // card / logo baked in) drags that text off the edge, which is exactly the
+  // "cut from everywhere" look. So pan-* degrade to a gentle center zoom too;
+  // only the direction (in vs out) varies.
   const center = { x: "iw/2-(iw/zoom/2)", y: "ih/2-(ih/zoom/2)" };
+  const zoomIn = `1+(${span}*on/${frames})`;
+  const zoomOut = `${ZOOM}-(${span}*on/${frames})`;
   switch (motion) {
     case "zoom-in":
-      return { z: `1+(${span}*on/${frames})`, ...center };
-    case "zoom-out":
-      return { z: `${ZOOM}-(${span}*on/${frames})`, ...center };
-    case "pan-left":
-      // camera drifts leftward: crop window slides right → left
-      return { z: `${ZOOM}`, x: `(iw-iw/zoom)*(1-on/${frames})`, y: center.y };
     case "pan-right":
-      return { z: `${ZOOM}`, x: `(iw-iw/zoom)*(on/${frames})`, y: center.y };
+      return { z: zoomIn, ...center };
+    case "zoom-out":
+    case "pan-left":
+      return { z: zoomOut, ...center };
   }
+}
+
+/**
+ * Fit a photo WHOLE onto the square master (never crop it). The artwork is
+ * scaled to sit inside a safe box and centered over a soft, dimmed, blurred
+ * copy of itself — so a portrait / 4:5 / already-composed post keeps every
+ * pixel (text card, logo, faces) instead of being cover-cropped to a square,
+ * and the letterbox reads as an intentional matte rather than flat bars.
+ */
+async function letterboxSquare(buf: Buffer): Promise<Buffer> {
+  const bg = await sharp(buf)
+    .rotate()
+    .resize(SRC, SRC, { fit: "cover", position: "centre" })
+    .blur(40)
+    .modulate({ brightness: 0.8 })
+    .toBuffer();
+  const box = Math.round(SRC * SAFE);
+  const fg = await sharp(buf)
+    .rotate()
+    .resize(box, box, { fit: "inside", withoutEnlargement: false })
+    .toBuffer();
+  const meta = await sharp(fg).metadata();
+  const fw = meta.width ?? box;
+  const fh = meta.height ?? box;
+  return sharp(bg)
+    .composite([{ input: fg, left: Math.round((SRC - fw) / 2), top: Math.round((SRC - fh) / 2) }])
+    .jpeg({ quality: 92 })
+    .toBuffer();
 }
 
 async function fetchImage(url: string): Promise<Buffer> {
@@ -111,17 +150,14 @@ export async function buildMontageMaster(shots: MontageShot[], opts: MontageOpts
   const dir = join(tmpdir(), `cd-montage-${randomUUID().slice(0, 8)}`);
   await mkdir(dir, { recursive: true });
   try {
-    // 1 · normalize every photo (EXIF rotation, cover-crop to the padded square).
+    // 1 · normalize every photo (EXIF rotation, letterbox WHOLE to the square).
     // One bad/unreachable photo skips that shot instead of sinking the montage.
     const frames: { path: string; holdSeconds: number; motion: MontageMotion }[] = [];
     for (let i = 0; i < shots.length; i++) {
       try {
         const buf = await fetchImage(shots[i].imageUrl);
-        const jpg = await sharp(buf)
-          .rotate() // honor EXIF orientation
-          .resize(SRC, SRC, { fit: "cover", position: "attention" })
-          .jpeg({ quality: 92 })
-          .toBuffer();
+        // Letterbox WHOLE (never cover-crop) so composed posts keep their text.
+        const jpg = await letterboxSquare(buf);
         const p = join(dir, `src-${i}.jpg`);
         await writeFile(p, jpg);
         frames.push({ path: p, holdSeconds: shots[i].holdSeconds, motion: shots[i].motion });
