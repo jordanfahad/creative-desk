@@ -234,10 +234,12 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
   const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
   if (!files.length) return;
 
-  const { data: job } = await supabase.from("jobs").select("asset_ids, media, project_id").eq("id", jobId).maybeSingle();
+  const { data: job } = await supabase.from("jobs").select("asset_ids, media, project_id, intent, video_mode").eq("id", jobId).maybeSingle();
   if (!job) return;
 
   const newIds: number[] = [];
+  let addedImage = false;
+  let addedVideo = false;
   for (const file of files.slice(0, MAX_FILES_PER_UPLOAD)) {
     const m = mediaOf(file);
     // Video jobs also accept IMAGES — montage sources and animate seed frames.
@@ -249,12 +251,25 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
       .insert({ project_id: job.project_id, filename: file.name, local_path: url, kind: "creative", media: m, quality: "good" })
       .select("id")
       .single();
-    if (data?.id) newIds.push(Number(data.id));
+    if (data?.id) {
+      newIds.push(Number(data.id));
+      if (m === "image") addedImage = true;
+      else addedVideo = true;
+    }
   }
   if (!newIds.length) return;
   const ids = [...(JSON.parse(job.asset_ids || "[]") as number[]), ...newIds];
   // Don't mutate intent here — createJob already set it; uploading a source must not flip a job's type.
-  await supabase.from("jobs").update({ asset_ids: JSON.stringify(ids), updated_at: now() }).eq("id", jobId);
+  const update: Record<string, unknown> = { asset_ids: JSON.stringify(ids), updated_at: now() };
+  // On a video job, let the uploaded media pick the video mode so the source
+  // matches the pipeline: photos → montage, a clip → enhance/animate. Don't
+  // override an explicit AI choice (animate/generate) when photos are seeds.
+  if (job.media === "video") {
+    const aiMode = job.video_mode === "animate" || job.video_mode === "generate";
+    if (addedVideo) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
+    else if (addedImage && !aiMode) update.video_mode = "montage";
+  }
+  await supabase.from("jobs").update(update).eq("id", jobId);
   revalidatePath(`/jobs/${jobId}`);
 }
 
@@ -366,7 +381,10 @@ export async function createJob(formData: FormData): Promise<void> {
   const pid = await getActiveProjectId();
   const mode = media === "video" ? "dynamic" : "static";
   const image_mode = intent === "create" ? "text" : "edit";
-  const video_mode = intent === "optimize" ? "passthrough" : "animate";
+  // Video default: create → photo montage (the "I have images → a video" path),
+  // optimize → enhance an existing clip. Either switches automatically to match
+  // whatever the user actually uploads.
+  const video_mode = media === "video" ? (intent === "optimize" ? "passthrough" : "montage") : "animate";
 
   const { data } = await supabase
     .from("jobs")

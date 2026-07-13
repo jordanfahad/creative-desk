@@ -131,8 +131,11 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
     </div>
   );
 
+  const photoAssets = assets.filter((a) => a.media !== "video");
+  const videoAssets = assets.filter((a) => a.media === "video");
+
   // Spend estimate: paid AI generations only — channel re-crops are free.
-  const imageAssetCount = assets.filter((a) => a.media !== "video").length;
+  const imageAssetCount = photoAssets.length;
   let aiCalls = 0;
   if (isMontage) aiCalls = 0; // deterministic pan/zoom render — no AI credits
   else if (!isOptimize) aiCalls = brief ? brief.shots.length : 0;
@@ -174,44 +177,118 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
         </form>
       </div>
 
-      {/* ── SOURCE (optimize jobs + montage videos) ── */}
-      {(isOptimize || isMontage) && (
+      {/* ── SOURCE ── image-optimize: photos. video: photos (→montage) always,
+          plus an existing-clip uploader on optimize. Image-create: none. ── */}
+      {(isOptimize || isVideoJob) && (
         <div className="card" style={{ marginTop: 18 }}>
-          <h3 style={{ marginTop: 0 }}>{step()} · Your {isVideoJob && !isMontage ? "video" : "photos"}</h3>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            {isMontage
-              ? "Upload the photos for the montage (up to ~10). The AI curates which to use, their order and pacing — then they're assembled into one branded video, cropped to every channel."
-              : `Upload the ${isVideoJob ? "clip(s)" : "image(s)"} to fix & optimize — each is edited on-brand, cropped to every channel, and logo-stamped.`}
-          </p>
-          {assets.length > 0 && (
-            <div className="grid cols-3" style={{ marginBottom: 12 }}>
-              {assets.map((a) => (
-                <div key={a.id}>
-                  {a.media === "video" ? (
-                    <video className="thumb" src={assetWebPath(a.local_path)} muted />
-                  ) : (
-                    <img className="thumb" src={assetWebPath(a.local_path)} alt={a.filename} />
+          <h3 style={{ marginTop: 0 }}>{step()} · Your {isVideoJob ? "source" : "photos"}</h3>
+
+          {isVideoJob ? (
+            <>
+              {/* Photos → montage video */}
+              <p className="small muted" style={{ marginTop: 0 }}>
+                <strong>Photos → video.</strong> Upload photos (up to ~10) and they’re assembled into
+                one branded montage — the AI curates which to use, their order, pacing and motion,
+                then it’s cropped to every channel. No AI credits.
+              </p>
+              {photoAssets.length > 0 && (
+                <div className="grid cols-3" style={{ marginBottom: 12 }}>
+                  {photoAssets.map((a) => (
+                    <div key={a.id}>
+                      <img className="thumb" src={assetWebPath(a.local_path)} alt={a.filename} />
+                      <form action={removeJobAsset} style={{ marginTop: 4 }}>
+                        <input type="hidden" name="job_id" value={job.id} />
+                        <input type="hidden" name="asset_id" value={a.id} />
+                        <button className="btn danger sm" type="submit">
+                          Remove
+                        </button>
+                      </form>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <form action={uploadJobAsset}>
+                <input type="hidden" name="job_id" value={job.id} />
+                <input type="file" name="file" accept="image/*" multiple required />
+                <div style={{ marginTop: 10 }}>
+                  <button className="btn" type="submit">
+                    + Add photos
+                  </button>
+                </div>
+              </form>
+
+              {/* Existing clip → enhance (optimize only) */}
+              {isOptimize && (
+                <div style={{ marginTop: 18, borderTop: "1px solid var(--line, #e5e7eb)", paddingTop: 14 }}>
+                  <p className="small muted" style={{ marginTop: 0 }}>
+                    <strong>Or an existing clip.</strong> Upload a video to enhance, resize to every
+                    channel, and logo-stamp (no montage).
+                  </p>
+                  {videoAssets.length > 0 && (
+                    <div className="grid cols-3" style={{ marginBottom: 12 }}>
+                      {videoAssets.map((a) => (
+                        <div key={a.id}>
+                          <video className="thumb" src={assetWebPath(a.local_path)} muted />
+                          <form action={removeJobAsset} style={{ marginTop: 4 }}>
+                            <input type="hidden" name="job_id" value={job.id} />
+                            <input type="hidden" name="asset_id" value={a.id} />
+                            <button className="btn danger sm" type="submit">
+                              Remove
+                            </button>
+                          </form>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                  <form action={removeJobAsset} style={{ marginTop: 4 }}>
+                  <form action={uploadJobAsset}>
                     <input type="hidden" name="job_id" value={job.id} />
-                    <input type="hidden" name="asset_id" value={a.id} />
-                    <button className="btn danger sm" type="submit">
-                      Remove
-                    </button>
+                    <input type="file" name="file" accept="video/*" multiple required />
+                    <div style={{ marginTop: 10 }}>
+                      <button className="btn secondary" type="submit">
+                        + Add video
+                      </button>
+                    </div>
                   </form>
                 </div>
-              ))}
-            </div>
+              )}
+              <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
+                Mode: <strong>{job.video_mode === "montage" ? "photo montage" : job.video_mode === "passthrough" ? "enhance video" : "AI video"}</strong>
+                {" "}— set automatically from what you upload; change it under “Channels &amp; output”.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="small muted" style={{ marginTop: 0 }}>
+                Upload the image(s) to fix &amp; optimize — each is edited on-brand, cropped to every
+                channel, and logo-stamped.
+              </p>
+              {photoAssets.length > 0 && (
+                <div className="grid cols-3" style={{ marginBottom: 12 }}>
+                  {photoAssets.map((a) => (
+                    <div key={a.id}>
+                      <img className="thumb" src={assetWebPath(a.local_path)} alt={a.filename} />
+                      <form action={removeJobAsset} style={{ marginTop: 4 }}>
+                        <input type="hidden" name="job_id" value={job.id} />
+                        <input type="hidden" name="asset_id" value={a.id} />
+                        <button className="btn danger sm" type="submit">
+                          Remove
+                        </button>
+                      </form>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <form action={uploadJobAsset}>
+                <input type="hidden" name="job_id" value={job.id} />
+                <input type="file" name="file" accept="image/*" multiple required />
+                <div style={{ marginTop: 10 }}>
+                  <button className="btn" type="submit">
+                    + Add photos
+                  </button>
+                </div>
+              </form>
+            </>
           )}
-          <form action={uploadJobAsset}>
-            <input type="hidden" name="job_id" value={job.id} />
-            <input type="file" name="file" accept={isVideoJob && !isMontage ? "video/*" : "image/*"} multiple required />
-            <div style={{ marginTop: 10 }}>
-              <button className="btn" type="submit">
-                + Add {isVideoJob && !isMontage ? "video" : "photos"}
-              </button>
-            </div>
-          </form>
         </div>
       )}
 
