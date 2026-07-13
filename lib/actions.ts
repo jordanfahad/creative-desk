@@ -8,7 +8,7 @@ import { supabase } from "./db";
 import { BUCKET } from "./supabase";
 import { getActiveProjectId, PROJECT_COOKIE, slugify } from "./project";
 import { SESSION_COOKIE } from "./session";
-import { uploadBuffer, uploadPrivate, PRIVATE_BUCKET } from "./storage";
+import { uploadBuffer, uploadPrivate, PRIVATE_BUCKET, publicUrl } from "./storage";
 import { parseBrief } from "./context";
 import { extractPdfText } from "./pdf";
 import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms } from "./platform";
@@ -340,6 +340,67 @@ export async function setInspirationNote(formData: FormData): Promise<void> {
     .eq("id", assetId)
     .eq("kind", "inspiration");
   revalidatePath(`/jobs/${jobId}`);
+}
+
+function mediaFromName(name: string): "image" | "video" | null {
+  if (/\.(png|jpe?g|webp|gif)$/i.test(name)) return "image";
+  if (/\.(mp4|webm|mov|m4v)$/i.test(name)) return "video";
+  return null;
+}
+
+/**
+ * Record files already uploaded to storage (via the signed-URL flow) as job
+ * assets. The browser uploads the bytes directly to Supabase — bypassing the
+ * Server Action body cap — then calls this with the resulting object paths.
+ * Only paths under `assets/` are accepted; media is inferred server-side.
+ */
+export async function attachJobAssets(
+  jobId: number,
+  items: { path: string; filename: string }[],
+): Promise<{ added: number }> {
+  if (!Number.isFinite(jobId) || !Array.isArray(items) || !items.length) return { added: 0 };
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("asset_ids, media, project_id, intent, video_mode")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return { added: 0 };
+
+  const newIds: number[] = [];
+  let addedImage = false;
+  let addedVideo = false;
+  for (const it of items.slice(0, MAX_FILES_PER_UPLOAD)) {
+    const path = String(it?.path ?? "");
+    if (!path.startsWith("assets/")) continue; // only our signed-upload paths
+    const m = mediaFromName(String(it?.filename ?? ""));
+    const allowed = m === "image" ? job.media === "image" || job.media === "video" : m === "video" ? job.media === "video" : false;
+    if (!allowed) continue;
+    const url = publicUrl(path);
+    const { data } = await supabase
+      .from("assets")
+      .insert({ project_id: job.project_id, filename: it.filename, local_path: url, kind: "creative", media: m, quality: "good" })
+      .select("id")
+      .single();
+    if (data?.id) {
+      newIds.push(Number(data.id));
+      if (m === "image") addedImage = true;
+      else addedVideo = true;
+    }
+  }
+  if (!newIds.length) return { added: 0 };
+
+  const ids = [...(JSON.parse(job.asset_ids || "[]") as number[]), ...newIds];
+  const update: Record<string, unknown> = { asset_ids: JSON.stringify(ids), updated_at: now() };
+  // Source drives the video mode: photos → montage, a clip → enhance/animate;
+  // don't override an explicit AI choice when photos are seeds.
+  if (job.media === "video") {
+    const aiMode = job.video_mode === "animate" || job.video_mode === "generate";
+    if (addedVideo) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
+    else if (addedImage && !aiMode) update.video_mode = "montage";
+  }
+  await supabase.from("jobs").update(update).eq("id", jobId);
+  revalidatePath(`/jobs/${jobId}`);
+  return { added: newIds.length };
 }
 
 export async function removeJobAsset(formData: FormData): Promise<void> {

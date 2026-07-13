@@ -19,7 +19,6 @@ import {
   removeBriefDoc,
   setProduction,
   setDirection,
-  uploadJobAsset,
   removeJobAsset,
   uploadJobInspiration,
   removeJobInspiration,
@@ -28,6 +27,7 @@ import {
 import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS } from "@/lib/platform";
 import { STYLE_PRESETS } from "@/lib/style";
 import JobActions from "./JobActions";
+import { JobAssetUpload } from "@/components/JobAssetUpload";
 
 export const dynamic = "force-dynamic";
 
@@ -207,15 +207,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                   ))}
                 </div>
               )}
-              <form action={uploadJobAsset}>
-                <input type="hidden" name="job_id" value={job.id} />
-                <input type="file" name="file" accept="image/*" multiple required />
-                <div style={{ marginTop: 10 }}>
-                  <button className="btn" type="submit">
-                    + Add photos
-                  </button>
-                </div>
-              </form>
+              <JobAssetUpload jobId={job.id} accept="image/*" buttonLabel="+ Add photos" />
 
               {/* Existing clip → enhance (optimize only) */}
               {isOptimize && (
@@ -240,15 +232,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                       ))}
                     </div>
                   )}
-                  <form action={uploadJobAsset}>
-                    <input type="hidden" name="job_id" value={job.id} />
-                    <input type="file" name="file" accept="video/*" multiple required />
-                    <div style={{ marginTop: 10 }}>
-                      <button className="btn secondary" type="submit">
-                        + Add video
-                      </button>
-                    </div>
-                  </form>
+                  <JobAssetUpload jobId={job.id} accept="video/*" buttonLabel="+ Add video" />
                 </div>
               )}
               <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
@@ -278,15 +262,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                   ))}
                 </div>
               )}
-              <form action={uploadJobAsset}>
-                <input type="hidden" name="job_id" value={job.id} />
-                <input type="file" name="file" accept="image/*" multiple required />
-                <div style={{ marginTop: 10 }}>
-                  <button className="btn" type="submit">
-                    + Add photos
-                  </button>
-                </div>
-              </form>
+              <JobAssetUpload jobId={job.id} accept="image/*" buttonLabel="+ Add photos" />
             </>
           )}
         </div>
