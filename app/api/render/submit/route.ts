@@ -297,6 +297,7 @@ export async function POST(req: NextRequest) {
                 trim: platform.maxDurationSeconds ? { duration: platform.maxDurationSeconds } : undefined,
                 // the baked end-card already carries the logo — hide the corner mark there
                 logoEnableBefore: withEndCard ? photoSeconds : undefined,
+                letterbox: true,
               });
               await insertRender({ group: 0, sourceAssetId: null, platform: platform.key, status: "completed", result_url: url, meta: { mode: "montage", images: plan.length } });
               results.push({ group: 0, platform: platform.key, status: "completed" });
@@ -381,6 +382,7 @@ async function finishVideoToStorage(
     logoPosition: LogoPosition;
     trim?: { start?: number; duration?: number };
     logoEnableBefore?: number;
+    letterbox?: boolean;
   },
 ): Promise<string> {
   const dir = join(tmpdir(), "creative-desk");

@@ -63,7 +63,7 @@ export async function finishVideo(
   if (useLogo) args.push("-i", localLogo as string);
 
   // cover-crop the base video to W×H
-  let filter = `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1`;
+  let filter = opts.letterbox ? `[0:v]split=2[lbbg][lbfg];[lbbg]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=28,eq=brightness=-0.12[lbb];[lbfg]scale=${W}:${H}:force_original_aspect_ratio=decrease[lbf];[lbb][lbf]overlay=(W-w)/2:(H-h)/2,setsar=1` : `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1`;
   if (useLogo) {
     const lw = Math.max(48, Math.min(Math.round(W * (opts.logoScale ?? 0.2)), W - 2 * margin));
     const pos = opts.logoPosition ?? "bottom-right";
