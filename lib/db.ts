@@ -65,7 +65,9 @@ export interface Job {
   platforms: string;
   video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage";
   /** Funnel stage steering the AI brief: awareness | consideration | conversion | null. */
-  funnel_goal: string | null;
+    funnel_goal: string | null;
+  /** Montage soundtrack: preset key (calm|warm|uplift), a storage path for an uploaded track, or null. */
+  music_track: string | null;
   image_mode: "text" | "edit" | "generate";
   style: string;
   combine: number;

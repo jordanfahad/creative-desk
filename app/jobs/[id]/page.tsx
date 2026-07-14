@@ -28,6 +28,7 @@ import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS } from "@/lib/platform";
 import { STYLE_PRESETS } from "@/lib/style";
 import JobActions from "./JobActions";
 import { JobAssetUpload } from "@/components/JobAssetUpload";
+import { MusicPicker } from "@/components/MusicPicker";
 
 export const dynamic = "force-dynamic";
 
@@ -235,6 +236,8 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                   <JobAssetUpload jobId={job.id} accept="video/*" buttonLabel="+ Add video" />
                 </div>
               )}
+                            {isMontage && <MusicPicker jobId={job.id} current={job.music_track ?? ""} />}
+
               <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
                 Mode: <strong>{job.video_mode === "montage" ? "photo montage" : job.video_mode === "passthrough" ? "enhance video" : "AI video"}</strong>
                 {" "}— set automatically from what you upload; change it under “Channels &amp; output”.

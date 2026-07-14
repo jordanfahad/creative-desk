@@ -565,6 +565,16 @@ export async function setDirection(formData: FormData): Promise<void> {
   revalidatePath(`/jobs/${id}`);
 }
 
+const MUSIC_PRESET_KEYS = new Set(["calm", "warm", "uplift"]);
+export async function setJobMusic(formData: FormData): Promise<void> {
+  const id = Number(formData.get("job_id"));
+  if (!Number.isFinite(id)) return;
+  let track = (formData.get("music_track") ?? "").toString().trim();
+  if (track && !MUSIC_PRESET_KEYS.has(track) && !track.startsWith("assets/")) track = "";
+  await supabase.from("jobs").update({ music_track: track || null, updated_at: now() }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+}
+
 export async function deleteJob(formData: FormData): Promise<void> {
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return;

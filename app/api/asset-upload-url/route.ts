@@ -11,9 +11,10 @@ export const runtime = "nodejs";
 
 const MAX_BYTES = 60 * 1024 * 1024;
 
-function mediaOfName(name: string): "image" | "video" | null {
+function mediaOfName(name: string): "image" | "video" | "audio" | null {
   if (/\.(png|jpe?g|webp|gif)$/i.test(name)) return "image";
   if (/\.(mp4|webm|mov|m4v)$/i.test(name)) return "video";
+  if (/\.(mp3|m4a|aac|wav|ogg)$/i.test(name)) return "audio";
   return null;
 }
 
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   const filename = String(body.filename ?? "").trim();
   if (!mediaOfName(filename)) {
-    return NextResponse.json({ error: "Only image or video files are supported." }, { status: 400 });
+    return NextResponse.json({ error: "Only image, video or audio files are supported." }, { status: 400 });
   }
   if (body.size != null && Number(body.size) > MAX_BYTES) {
     return NextResponse.json({ error: "File too large (max 60 MB)." }, { status: 413 });

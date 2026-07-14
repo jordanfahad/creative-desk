@@ -14,7 +14,7 @@ import {
   jobPlatformKeys,
   jobInspirationIds,
 } from "@/lib/db";
-import { uploadBuffer } from "@/lib/storage";
+import { uploadBuffer, publicUrl } from "@/lib/storage";
 import { parseBrief, type Brief } from "@/lib/context";
 import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
 import { finishImage } from "@/lib/finish";
@@ -277,7 +277,8 @@ export async function POST(req: NextRequest) {
         const END_CARD_SECONDS = 2.2;
         const withEndCard = Boolean(logoOpts.logoEnabled && logoOpts.logoPath);
         const photoSeconds = running;
-        const master = await buildMontageMaster(plan, {
+                const master = await buildMontageMaster(plan, {
+          music: (job.music_track ?? "").trim() ? ((job.music_track as string).trim().startsWith("assets/") ? publicUrl((job.music_track as string).trim()) : (job.music_track as string).trim()) : null,
           endCard: withEndCard
             ? { logoUrl: logoOpts.logoPath as string, bgColor: colors[0] || "#1F3A5F", holdSeconds: END_CARD_SECONDS }
             : null,
