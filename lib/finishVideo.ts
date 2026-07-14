@@ -16,7 +16,15 @@ export interface VideoFinishOpts extends FinishOpts {
   trim?: { start?: number; duration?: number };
   /** Hide the corner logo after this many seconds (e.g. while a baked brand
    *  end-card is on screen, so the logo isn't shown twice). */
-  logoEnableBefore?: number;
+    logoEnableBefore?: number;
+  /**
+   * Fit the whole frame into W×H (letterbox) instead of cover-cropping. For
+   * montage posts that carry baked-in text, cropping a square master to a 9:16
+   * story/16:9 landscape would slice the artwork; letterboxing centers it on a
+   * blurred fill of itself so every pixel survives. For a 1:1 output it's a
+   * no-op (contain == cover). Real-footage paths leave this off (crop is right).
+   */
+  letterbox?: boolean;
 }
 
 export async function finishVideo(
