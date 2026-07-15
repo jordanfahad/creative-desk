@@ -19,10 +19,24 @@ export const JOBS_PACK_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Fixed subject signed into the token — verification just checks it matches.
 const SUBJECT = "jobs-pack";
 
+<<<<<<< ours
+<<<<<<< ours
 // SHA-256 of the access password. The plaintext lives only in the operator's
 // head and the env, never here. Rotate by setting JOBS_PACK_PASSWORD in Vercel.
 const DEFAULT_PASSWORD_SHA256 =
   "2490ec1332176afe904b94234212624abd169ed4f51a4a6adb2d5efb8e46da5f";
+=======
+// SHA-256("DNxCreative@2026"). The plaintext lives only in the operator's head
+// and the env, never here. Rotate by setting JOBS_PACK_PASSWORD in Vercel.
+const DEFAULT_PASSWORD_SHA256 =
+  "a13b78eb226ea1e736831bed1b1debe6529ab4864b8524e37013acff72b12ddd";
+>>>>>>> theirs
+=======
+// SHA-256 of the access password. The plaintext lives only in the operator's
+// head and the env, never here. Rotate by setting JOBS_PACK_PASSWORD in Vercel.
+const DEFAULT_PASSWORD_SHA256 =
+  "2490ec1332176afe904b94234212624abd169ed4f51a4a6adb2d5efb8e46da5f";
+>>>>>>> theirs
 
 const enc = new TextEncoder();
 
