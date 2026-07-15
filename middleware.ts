@@ -12,13 +12,29 @@ export const config = {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (pathname === "/login" || pathname.startsWith("/api/auth")) return NextResponse.next();
+
+  // Expose the path to the root layout (server components can't read it
+  // otherwise) so the internal nav can be hidden on the external pack page.
+  const passthrough = () => {
+    const headers = new Headers(req.headers);
+    headers.set("x-pathname", pathname);
+    return NextResponse.next({ request: { headers } });
+  };
+
+  // The external Creative Jobs Pack has its OWN password gate (lib/jobsPack +
+  // /api/jobs-pack), so it's exempt from the main login gate — external hires
+  // (designers, marketers, creative directors) never hit the internal sign-in.
+  if (pathname === "/download-jobs" || pathname.startsWith("/api/jobs-pack")) {
+    return passthrough();
+  }
+
+  if (pathname === "/login" || pathname.startsWith("/api/auth")) return passthrough();
 
   const secret = process.env.SUPABASE_SECRET_KEY;
-  if (!secret) return NextResponse.next();
+  if (!secret) return passthrough();
 
   const email = await verifySession(req.cookies.get(SESSION_COOKIE)?.value, secret);
-  if (email) return NextResponse.next();
+  if (email) return passthrough();
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });

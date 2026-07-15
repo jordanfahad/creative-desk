@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 import { listProjects, getActiveProjectId } from "@/lib/project";
 import { switchProject, signOut } from "@/lib/actions";
@@ -24,6 +24,22 @@ function BrandMark() {
 }
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
+  // The external Creative Jobs Pack is a standalone, shareable page — it must
+  // never show the internal nav (Jobs / Assets / Brand kit / …). The path is
+  // surfaced by middleware via the x-pathname header.
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const external = pathname === "/download-jobs";
+
+  if (external) {
+    return (
+      <html lang="en">
+        <body>
+          <div className="container">{children}</div>
+        </body>
+      </html>
+    );
+  }
+
   const [projects, activeId] = await Promise.all([listProjects(), getActiveProjectId()]);
   const authed = Boolean((await cookies()).get(SESSION_COOKIE)?.value);
 
