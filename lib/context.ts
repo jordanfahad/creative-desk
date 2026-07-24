@@ -243,11 +243,14 @@ export function briefSystemPrompt(
     sourceImageCount > 0 && sourceImageCount <= 4
       ? `all ${sourceImageCount} attached photo(s)`
       : `4 to ${Math.min(Math.max(sourceImageCount, 4), 10)} of the attached photos`;
+  const carouselN = Math.min(Math.max(job.carousel_count ?? 1, 1), 6);
   const shotCount = isMontage
     ? `one shot per SELECTED photo (${montageUse})`
     : isOptimize
       ? "exactly 1 shot"
-      : "1 to 4 shots";
+      : carouselN > 1
+        ? `exactly ${carouselN} shots — these are the ${carouselN} slides of ONE carousel post: a cohesive set (consistent style, lighting and palette) that flows slide-to-slide (open with a hook, build in the middle, end with a soft call-to-action). Each slide must be visually distinct`
+        : "exactly 1 shot";
 
   return [
     `You are a world-class AI image & video PROMPT ENGINEER and the creative director for ${job.title ? "this" : "a"} premium dental brand. You turn a short human direction into production-grade generation prompts that the fal.ai renderer (${renderer}) renders into POLISHED, ON-BRAND, USABLE marketing creatives. Weak, generic prompts are unacceptable — be specific and cinematic.`,

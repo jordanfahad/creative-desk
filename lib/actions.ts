@@ -61,6 +61,7 @@ function readSettings(formData: FormData) {
   const pos = (formData.get("logo_position") ?? "bottom-right").toString();
   const vm = (formData.get("video_mode") ?? "animate").toString();
   const style = (formData.get("style") ?? "auto").toString();
+  const carousel_count = Math.min(Math.max(Math.round(Number(formData.get("carousel_count")) || 1), 1), 6);
   const logoIdRaw = formData.get("logo_id");
   const logoIdNum = Number(logoIdRaw);
   const logo_id = logoIdRaw != null && logoIdRaw !== "" && Number.isFinite(logoIdNum) ? logoIdNum : null;
@@ -73,6 +74,7 @@ function readSettings(formData: FormData) {
     combine: formData.get("combine") ? 1 : 0,
     video_mode: VIDEO_MODES.has(vm) ? vm : "animate",
     style: STYLE_KEYS.includes(style) ? style : "auto",
+    carousel_count,
   };
 }
 const now = () => new Date().toISOString();
@@ -556,9 +558,20 @@ export async function setProduction(formData: FormData): Promise<void> {
 export async function setDirection(formData: FormData): Promise<void> {
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return;
-  const goalRaw = (formData.get("funnel_goal") ?? "").toString();
   await supabase.from("jobs").update({
     brief_notes: (formData.get("brief_notes") ?? "").toString().trim() || null,
+    updated_at: now(),
+  }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+}
+
+// The goal has its OWN action so it can auto-save on change (no "Save direction"
+// step) — picking a goal persists immediately and never snaps back.
+export async function setJobGoal(formData: FormData): Promise<void> {
+  const id = Number(formData.get("id"));
+  if (!Number.isFinite(id)) return;
+  const goalRaw = (formData.get("funnel_goal") ?? "").toString();
+  await supabase.from("jobs").update({
     funnel_goal: FUNNEL_GOALS.has(goalRaw) ? goalRaw : null,
     updated_at: now(),
   }).eq("id", id);

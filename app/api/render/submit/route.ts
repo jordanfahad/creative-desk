@@ -326,29 +326,37 @@ export async function POST(req: NextRequest) {
           }
         }
       } else {
-        // Kling path: a montage curation brief must never become a Kling prompt.
-        const shot0 = briefIsMontage ? undefined : brief?.shots?.[0];
-        const optimized = shot0?.prompt;
-        const motion = shot0?.motion ? ` Camera/motion: ${shot0.motion}.` : "";
-        // optimized prompt is brand-rich → use verbatim (+ motion); else wrap raw direction.
-        const instruction = optimized
-          ? `${optimized}${motion}`
-          : `${job.brief_notes || "An on-brand promotional clip."} ${brandHint}`;
-        // the seed image gets the same brand-rich prompt (sans motion, since it's a still)
-        const seedPrompt = optimized || `${job.brief_notes || "An on-brand promotional clip."} ${brandHint}`;
-        let seedUrl: string;
-        let seedAssetId: number | null = null;
-        if (imageAssets.length) {
-          seedUrl = imageAssets[0].local_path;
-          seedAssetId = imageAssets[0].id;
-        } else {
-          seedUrl = (await generateImage(seedPrompt, MASTER_IMAGE_SIZE)).url;
-        }
+        // Kling path. For a create carousel, enqueue one clip per slide (each its
+        // own prompt); otherwise a single clip. A montage curation brief must
+        // never become a Kling prompt.
+        const shots = briefIsMontage ? [] : brief?.shots ?? [];
+        const clips =
+          job.intent === "create" && !briefIsMontage
+            ? Math.min(Math.max(job.carousel_count ?? 1, 1), 6)
+            : 1;
         const maxDur = Math.max(5, ...platforms.map((p) => p.maxDurationSeconds ?? 5));
-        const negative = shot0?.negative || BASE_NEGATIVE;
-        const sub = await enqueueVideo(instruction, seedUrl, maxDur, negative);
-        await insertRender({ group: 0, sourceAssetId: seedAssetId, platform: null, status: "processing", request_id: sub.requestId, status_url: sub.model, meta: { master: true } });
-        results.push({ group: 0, platform: null, status: "processing" });
+        for (let i = 0; i < clips; i++) {
+          const shot = shots[i] ?? shots[0];
+          const optimized = shot?.prompt;
+          const motion = shot?.motion ? ` Camera/motion: ${shot.motion}.` : "";
+          const instruction = optimized
+            ? `${optimized}${motion}`
+            : `${job.brief_notes || "An on-brand promotional clip."} ${brandHint}`;
+          const seedPrompt = optimized || `${job.brief_notes || "An on-brand promotional clip."} ${brandHint}`;
+          let seedUrl: string;
+          let seedAssetId: number | null = null;
+          if (imageAssets.length) {
+            const a = imageAssets[i] ?? imageAssets[0];
+            seedUrl = a.local_path;
+            seedAssetId = a.id;
+          } else {
+            seedUrl = (await generateImage(seedPrompt, MASTER_IMAGE_SIZE)).url;
+          }
+          const negative = shot?.negative || BASE_NEGATIVE;
+          const sub = await enqueueVideo(instruction, seedUrl, maxDur, negative);
+          await insertRender({ group: i, sourceAssetId: seedAssetId, platform: null, status: "processing", request_id: sub.requestId, status_url: sub.model, meta: { master: true, slide: i } });
+          results.push({ group: i, platform: null, status: "processing" });
+        }
       }
     }
   } catch (e) {

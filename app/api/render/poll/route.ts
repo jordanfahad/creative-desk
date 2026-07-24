@@ -102,21 +102,22 @@ async function fanOutVideo(master: Render, masterUrl: string) {
   const dir = join(tmpdir(), "creative-desk");
   await mkdir(dir, { recursive: true });
 
+  const group = master.shot_index; // carousel slide index (0 for a single clip)
   for (const platform of platforms) {
     try {
-      const out = join(dir, `${job.id}-0-${platform.key}-${randomUUID().slice(0, 6)}.mp4`);
+      const out = join(dir, `${job.id}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`);
       await finishVideo(masterUrl, out, { platform, ...logoOpts });
       const buf = await readFile(out);
-      const url = await uploadBuffer(`renders/${job.id}-0-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
+      const url = await uploadBuffer(`renders/${job.id}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
       await unlink(out).catch(() => {});
       await supabase.from("renders").insert({
-        job_id: job.id, brief_id: master.brief_id, shot_index: 0,
+        job_id: job.id, brief_id: master.brief_id, shot_index: group,
         source_asset_id: master.source_asset_id, platform: platform.key,
         status: "completed", result_url: url, attempts: 0, meta: JSON.stringify({ master_url: masterUrl }),
       });
     } catch (e) {
       await supabase.from("renders").insert({
-        job_id: job.id, brief_id: master.brief_id, shot_index: 0, platform: platform.key,
+        job_id: job.id, brief_id: master.brief_id, shot_index: group, platform: platform.key,
         status: "failed", error: errMsg(e), attempts: 0, meta: "{}",
       });
     }

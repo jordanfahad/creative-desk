@@ -19,6 +19,7 @@ import {
   removeBriefDoc,
   setProduction,
   setDirection,
+  setJobGoal,
   removeJobAsset,
   uploadJobInspiration,
   removeJobInspiration,
@@ -27,6 +28,7 @@ import {
 import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS } from "@/lib/platform";
 import { STYLE_PRESETS } from "@/lib/style";
 import JobActions from "./JobActions";
+import GoalPicker from "./GoalPicker";
 import { JobAssetUpload } from "@/components/JobAssetUpload";
 import { MusicPicker } from "@/components/MusicPicker";
 
@@ -292,19 +294,14 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                   : "e.g. calm reception shots that build trust"
             }
           />
-          <div className="row" style={{ gap: 6, marginTop: 10 }}>
-            <span className="small muted">goal</span>
-            <select name="funnel_goal" defaultValue={job.funnel_goal ?? ""} style={{ width: "auto" }}>
-              <option value="">General / not set</option>
-              <option value="awareness">Brand awareness — be remembered, no hard sell</option>
-              <option value="consideration">Consideration — build trust, soft invite</option>
-              <option value="conversion">Conversion — drive bookings, clear CTA</option>
-            </select>
-          </div>
           <button className="btn secondary sm" type="submit" style={{ marginTop: 10 }}>
             Save direction
           </button>
         </form>
+        <div style={{ marginTop: 12 }}>
+          <GoalPicker jobId={job.id} value={job.funnel_goal ?? ""} action={setJobGoal} />
+          <p className="small muted" style={{ marginTop: 4 }}>Goal saves automatically when you pick it.</p>
+        </div>
         <p className="small muted" style={{ marginTop: 10 }}>
           Next, click <strong>✨ Optimize prompt with AI</strong> below — it rewrites this into a
           brand-aligned, production-grade {isVideoJob ? "video" : "image"} prompt before generating.
@@ -340,6 +337,19 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
           ))}
 
           <div className="row" style={{ gap: 20, marginTop: 6, flexWrap: "wrap" }}>
+            {!isOptimize && !isMontage && (
+              <div className="row" style={{ gap: 6 }}>
+                <span className="small muted">format</span>
+                <select name="carousel_count" defaultValue={String(job.carousel_count ?? 1)} style={{ width: "auto" }}>
+                  <option value="1">Single {isVideoJob ? "clip" : "image"}</option>
+                  <option value="2">Carousel · 2 slides</option>
+                  <option value="3">Carousel · 3 slides</option>
+                  <option value="4">Carousel · 4 slides</option>
+                  <option value="5">Carousel · 5 slides</option>
+                  <option value="6">Carousel · 6 slides</option>
+                </select>
+              </div>
+            )}
             <div className="row" style={{ gap: 6 }}>
               <span className="small muted">style</span>
               <select name="style" defaultValue={job.style} style={{ width: "auto" }}>

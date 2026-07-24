@@ -70,6 +70,8 @@ export interface Job {
   music_track: string | null;
   image_mode: "text" | "edit" | "generate";
   style: string;
+  /** Carousel slides to generate for a create job: 1 (single) … 6. */
+  carousel_count: number;
   combine: number;
   platform: string;
   logo_enabled: number;
