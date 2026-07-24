@@ -20,7 +20,7 @@ import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
 import { buildMontageMaster, normalizeMotion, type MontageShot } from "@/lib/montage";
-import { platformOf, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
+import { platformOf, clampCarousel, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
 import { BASE_NEGATIVE } from "@/lib/style";
 
 export const runtime = "nodejs";
@@ -330,10 +330,7 @@ export async function POST(req: NextRequest) {
         // own prompt); otherwise a single clip. A montage curation brief must
         // never become a Kling prompt.
         const shots = briefIsMontage ? [] : brief?.shots ?? [];
-        const clips =
-          job.intent === "create" && !briefIsMontage
-            ? Math.min(Math.max(job.carousel_count ?? 1, 1), 6)
-            : 1;
+        const clips = job.intent === "create" && !briefIsMontage ? clampCarousel(job.carousel_count) : 1;
         const maxDur = Math.max(5, ...platforms.map((p) => p.maxDurationSeconds ?? 5));
         for (let i = 0; i < clips; i++) {
           const shot = shots[i] ?? shots[0];

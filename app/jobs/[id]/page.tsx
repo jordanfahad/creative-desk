@@ -25,7 +25,7 @@ import {
   removeJobInspiration,
   setInspirationNote,
 } from "@/lib/actions";
-import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS } from "@/lib/platform";
+import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS, carouselCounts } from "@/lib/platform";
 import { STYLE_PRESETS } from "@/lib/style";
 import JobActions from "./JobActions";
 import GoalPicker from "./GoalPicker";
@@ -341,12 +341,11 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
               <div className="row" style={{ gap: 6 }}>
                 <span className="small muted">format</span>
                 <select name="carousel_count" defaultValue={String(job.carousel_count ?? 1)} style={{ width: "auto" }}>
-                  <option value="1">Single {isVideoJob ? "clip" : "image"}</option>
-                  <option value="2">Carousel · 2 slides</option>
-                  <option value="3">Carousel · 3 slides</option>
-                  <option value="4">Carousel · 4 slides</option>
-                  <option value="5">Carousel · 5 slides</option>
-                  <option value="6">Carousel · 6 slides</option>
+                  {carouselCounts().map((n) => (
+                    <option key={n} value={n}>
+                      {n === 1 ? `Single ${isVideoJob ? "clip" : "image"}` : `Carousel · ${n} slides`}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}

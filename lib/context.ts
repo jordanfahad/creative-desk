@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getBrandKit, listGuidelines, getAssetsByIds, jobInspirationIds, type Asset, type Job } from "./db";
 import { styleGuidance, styleLabel, BASE_NEGATIVE } from "./style";
+import { clampCarousel } from "./platform";
 
 // ── The context store ────────────────────────────────────────────────
 // "Give the model the guidelines once" = store once (brand_kit + guidelines),
@@ -243,7 +244,7 @@ export function briefSystemPrompt(
     sourceImageCount > 0 && sourceImageCount <= 4
       ? `all ${sourceImageCount} attached photo(s)`
       : `4 to ${Math.min(Math.max(sourceImageCount, 4), 10)} of the attached photos`;
-  const carouselN = Math.min(Math.max(job.carousel_count ?? 1, 1), 6);
+  const carouselN = clampCarousel(job.carousel_count);
   const shotCount = isMontage
     ? `one shot per SELECTED photo (${montageUse})`
     : isOptimize

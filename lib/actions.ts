@@ -11,7 +11,7 @@ import { SESSION_COOKIE } from "./session";
 import { uploadBuffer, uploadPrivate, PRIVATE_BUCKET, publicUrl } from "./storage";
 import { parseBrief } from "./context";
 import { extractPdfText } from "./pdf";
-import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms } from "./platform";
+import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms, clampCarousel } from "./platform";
 import { STYLE_KEYS } from "./style";
 
 const INTENTS = new Set(["optimize", "create"]);
@@ -61,7 +61,7 @@ function readSettings(formData: FormData) {
   const pos = (formData.get("logo_position") ?? "bottom-right").toString();
   const vm = (formData.get("video_mode") ?? "animate").toString();
   const style = (formData.get("style") ?? "auto").toString();
-  const carousel_count = Math.min(Math.max(Math.round(Number(formData.get("carousel_count")) || 1), 1), 6);
+  const carousel_count = clampCarousel(formData.get("carousel_count"));
   const logoIdRaw = formData.get("logo_id");
   const logoIdNum = Number(logoIdRaw);
   const logo_id = logoIdRaw != null && logoIdRaw !== "" && Number.isFinite(logoIdNum) ? logoIdNum : null;

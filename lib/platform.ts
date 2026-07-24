@@ -100,6 +100,13 @@ export function defaultPlatforms(family?: ChannelFamily): string[] {
   return ["gmb_square", "org_ig_feed_45", "org_ig_story_reel_916"]; // a bit of each
 }
 
+// Carousel: a post can hold 1 (single) … MAX_CAROUSEL slides/items.
+export const MAX_CAROUSEL = 6;
+export const carouselCounts = () => Array.from({ length: MAX_CAROUSEL }, (_, i) => i + 1);
+export function clampCarousel(n: unknown): number {
+  return Math.min(Math.max(Math.round(Number(n) || 1), 1), MAX_CAROUSEL);
+}
+
 // The AI master is generated square so it crops cleanly to any channel ratio.
 export const MASTER_IMAGE_SIZE = "square_hd";
 export const MASTER_ASPECT = "1:1";
