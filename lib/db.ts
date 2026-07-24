@@ -66,6 +66,10 @@ export interface Job {
   video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage";
   /** Funnel stage steering the AI brief: awareness | consideration | conversion | null. */
     funnel_goal: string | null;
+  /** Custom closing-card call-to-action (e.g. "WhatsApp us — 04 123 4567"); null = goal-based default. */
+  cta_text: string | null;
+  /** Optional second line under the CTA; null = brand tagline. */
+  cta_subtext: string | null;
   /** Montage soundtrack: preset key (calm|warm|uplift), a storage path for an uploaded track, or null. */
   music_track: string | null;
   image_mode: "text" | "edit" | "generate";

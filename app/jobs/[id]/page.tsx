@@ -304,6 +304,36 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                   : "e.g. calm reception shots that build trust"
             }
           />
+          {isMontage && (
+            <>
+              <div className="grid cols-2" style={{ marginTop: 10 }}>
+                <div>
+                  <label style={{ marginTop: 0 }}>Closing call-to-action (optional)</label>
+                  <input
+                    type="text"
+                    name="cta_text"
+                    maxLength={60}
+                    defaultValue={job.cta_text ?? ""}
+                    placeholder="e.g. WhatsApp us today — 04 123 4567"
+                  />
+                </div>
+                <div>
+                  <label style={{ marginTop: 0 }}>CTA subtext (optional)</label>
+                  <input
+                    type="text"
+                    name="cta_subtext"
+                    maxLength={80}
+                    defaultValue={job.cta_subtext ?? ""}
+                    placeholder="e.g. Same-day appointments"
+                  />
+                </div>
+              </div>
+              <p className="small muted" style={{ margin: "6px 0 0" }}>
+                Baked into the montage’s closing brand card. Leave blank for an automatic line
+                based on your goal. English text for now.
+              </p>
+            </>
+          )}
           <button className="btn secondary sm" type="submit" style={{ marginTop: 10 }}>
             Save direction
           </button>

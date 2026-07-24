@@ -202,7 +202,11 @@ export default function KnowledgePage() {
           </li>
         </ol>
         <p className="small muted" style={{ marginBottom: 0 }}>
-          AI clips are silent by design — add music/voiceover in your editor.
+          <strong>Photo-montage</strong> videos end on a branded closing card — set your own{" "}
+          <strong>call-to-action</strong> (e.g. a WhatsApp number or offer) in the direction step,
+          or leave it blank for an automatic line based on your goal. Montages can also bake in a
+          soundtrack; AI clips and enhanced uploads deliver without a closing card and are silent
+          by design — add music in your editor or in-app.
         </p>
       </div>
 

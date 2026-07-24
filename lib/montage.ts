@@ -53,8 +53,8 @@ export interface MontageShot {
 }
 
 export interface MontageOpts {
-  /** Optional closing card: a call-to-action headline + logo on a brand field. */
-  endCard?: { logoUrl: string; bgColor?: string; holdSeconds?: number; cta?: string; subtext?: string } | null;
+  /** Optional closing card: a call-to-action headline (+ logo, if any) on a brand field. */
+  endCard?: { logoUrl?: string | null; bgColor?: string; holdSeconds?: number; cta?: string; subtext?: string } | null;
   /**
    * Optional soundtrack baked into the export (paid ads can't use the platform's
    * in-app music, so it has to be in the file). Either a built-in preset key
@@ -272,42 +272,91 @@ function wrapLines(text: string, perLine: number, maxLines: number): string[] {
 /**
  * Compose the closing card: a brand-color field with a CALL-TO-ACTION headline
  * (+ optional subtext) above the logo — the ad's payoff, not dead air. Text is
- * vectorized so it renders on Vercel regardless of installed fonts.
+ * vectorized so it renders on Vercel regardless of installed fonts. The logo is
+ * optional (a custom CTA still gets its card when the corner logo is off), it
+ * shrinks rather than overlapping the text, and any line that can't fit even at
+ * the minimum font size is ellipsized instead of running off the card.
  */
-async function buildEndCard(logoUrl: string, bgColor: string, cta?: string, subtext?: string): Promise<Buffer> {
-  const logo = await loadLogoBuffer(logoUrl);
+async function buildEndCard(logoUrl: string | null, bgColor: string, cta?: string, subtext?: string): Promise<Buffer> {
+  // bgColor comes from the free-text brand-colors field → validate before it
+  // lands inside SVG markup.
+  const safeBg = /^#[0-9a-fA-F]{3,8}$/.test(bgColor) ? bgColor : "#1F3A5F";
   const hasText = !!(cta && cta.trim());
-  const logoW = Math.round(SRC * (hasText ? 0.32 : 0.42));
-  const scaled = await sharp(logo).resize({ width: logoW }).png().toBuffer();
-  const meta = await sharp(scaled).metadata();
-  const lw = meta.width ?? logoW;
-  const lh = meta.height ?? Math.round(logoW * 0.4);
+
+  let scaled: Buffer | null = null;
+  let lw = 0;
+  let lh = 0;
+  if (logoUrl) {
+    try {
+      const logo = await loadLogoBuffer(logoUrl);
+      const logoW = Math.round(SRC * (hasText ? 0.32 : 0.42));
+      scaled = await sharp(logo).resize({ width: logoW }).png().toBuffer();
+      const meta = await sharp(scaled).metadata();
+      lw = meta.width ?? logoW;
+      lh = meta.height ?? Math.round(logoW * 0.4);
+    } catch {
+      scaled = null; // a broken logo shouldn't sink the CTA card
+    }
+  }
 
   const paths: string[] = [];
   let logoTop = Math.round((SRC - lh) / 2); // centered when there's no text
   if (hasText) {
     const f = endFont();
+    const maxW = Math.round(SRC * 0.88); // text must never run off the card
+    // Ellipsize a line that can't fit even at the floored font size (e.g. one
+    // long unbroken wa.me link) — trimmed beats clipped.
+    const fit = (ln: string, size: number): string => {
+      if (f.getAdvanceWidth(ln, size) <= maxW) return ln;
+      let t = ln;
+      while (t.length > 1 && f.getAdvanceWidth(t + "…", size) > maxW) t = t.slice(0, -1);
+      return t + "…";
+    };
     const lines = wrapLines(cta!.trim(), 17, 2);
-    const fs = lines.length > 1 ? 200 : 236;
+    let fs = lines.length > 1 ? 200 : 236;
+    // Fit-to-width: a long CTA (offers, phone numbers) shrinks instead of clipping.
+    const widest = Math.max(...lines.map((ln) => f.getAdvanceWidth(ln, fs)));
+    if (widest > maxW) fs = Math.max(96, Math.floor((fs * maxW) / widest));
+    const fitted = lines.map((ln) => fit(ln, fs));
     const lineH = Math.round(fs * 1.14);
-    let baseline = Math.round(SRC * 0.3) + fs; // first line's baseline
-    lines.forEach((ln, i) => paths.push(linePath(f, ln, baseline + i * lineH, fs, "#ffffff")));
-    let y = baseline + (lines.length - 1) * lineH;
+    const baseline = Math.round(SRC * 0.3) + fs; // first line's baseline
+    fitted.forEach((ln, i) => paths.push(linePath(f, ln, baseline + i * lineH, fs, "#ffffff")));
+    let y = baseline + (fitted.length - 1) * lineH;
     if (subtext && subtext.trim()) {
       const sub = wrapLines(subtext.trim(), 34, 2);
-      const sfs = 92;
+      let sfs = 92;
+      const subWidest = Math.max(...sub.map((ln) => f.getAdvanceWidth(ln, sfs)));
+      if (subWidest > maxW) sfs = Math.max(52, Math.floor((sfs * maxW) / subWidest));
+      const fittedSub = sub.map((ln) => fit(ln, sfs));
       const slh = Math.round(sfs * 1.18);
       y += Math.round(fs * 0.95);
-      sub.forEach((ln, i) => paths.push(linePath(f, ln, y + i * slh, sfs, "#cfe2d0")));
-      y += (sub.length - 1) * slh;
+      fittedSub.forEach((ln, i) => paths.push(linePath(f, ln, y + i * slh, sfs, "#cfe2d0")));
+      y += (fittedSub.length - 1) * slh;
     }
-    logoTop = Math.min(y + Math.round(SRC * 0.16), SRC - lh - Math.round(SRC * 0.06));
+    logoTop = y + Math.round(SRC * 0.14);
+    // The logo must never ride up over the text: shrink it into the space left
+    // below (or drop it if there's effectively none).
+    if (scaled) {
+      const maxLogoH = SRC - Math.round(SRC * 0.06) - logoTop;
+      if (maxLogoH <= 60) {
+        scaled = null;
+      } else if (lh > maxLogoH) {
+        scaled = await sharp(scaled).resize({ height: maxLogoH }).png().toBuffer();
+        const m2 = await sharp(scaled).metadata();
+        lw = m2.width ?? lw;
+        lh = m2.height ?? maxLogoH;
+      }
+      logoTop = Math.min(logoTop, SRC - lh - Math.round(SRC * 0.06));
+    }
   }
 
-  const svg = `<svg width="${SRC}" height="${SRC}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="${bgColor}"/>${paths.join("")}</svg>`;
+  const svg = `<svg width="${SRC}" height="${SRC}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="${safeBg}"/>${paths.join("")}</svg>`;
 
-  return sharp(Buffer.from(svg))
-    .composite([{ input: scaled, left: Math.round((SRC - lw) / 2), top: logoTop }])
+  const base = sharp(Buffer.from(svg));
+  return (scaled
+    ? base.composite([{ input: scaled, left: Math.round((SRC - lw) / 2), top: logoTop }])
+    : base
+  )
     .jpeg({ quality: 92 })
     .toBuffer();
 }
@@ -352,7 +401,7 @@ export async function buildMontageMaster(shots: MontageShot[], opts: MontageOpts
     if (!frames.length) throw new Error("none of the montage photos could be loaded");
     if (opts.endCard) {
       try {
-        const card = await buildEndCard(opts.endCard.logoUrl, opts.endCard.bgColor || "#1F3A5F", opts.endCard.cta, opts.endCard.subtext);
+        const card = await buildEndCard(opts.endCard.logoUrl ?? null, opts.endCard.bgColor || "#1F3A5F", opts.endCard.cta, opts.endCard.subtext);
         const p = join(dir, `src-end.jpg`);
         await writeFile(p, card);
         frames.push({ path: p, holdSeconds: opts.endCard.holdSeconds ?? 3.0, motion: "zoom-in" });

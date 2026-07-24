@@ -276,19 +276,31 @@ export async function POST(req: NextRequest) {
           return true;
         });
         const END_CARD_SECONDS = 3.0;
-        const withEndCard = Boolean(logoOpts.logoEnabled && logoOpts.logoPath);
         const photoSeconds = running;
-        // Goal-aware call-to-action baked into the closing card (the ad's payoff).
+        // Closing-card call-to-action: the job's CUSTOM CTA/subtext win (each ad
+        // can carry its own offer/number); missing pieces fall back to a
+        // goal-aware default.
         const CTA: Record<string, { cta: string; sub: string }> = {
           conversion: { cta: "Book your visit today", sub: brand?.tagline ?? "" },
           consideration: { cta: "See what’s possible", sub: brand?.tagline ?? "" },
           awareness: { cta: brand?.tagline || brand?.clinic_name || "Beyond Smiles", sub: "" },
         };
-        const endCta = (job.funnel_goal && CTA[job.funnel_goal]) || { cta: "Book your visit today", sub: brand?.tagline ?? "" };
+        const goalCta = (job.funnel_goal && CTA[job.funnel_goal]) || { cta: "Book your visit today", sub: brand?.tagline ?? "" };
+        const customCta = (job.cta_text ?? "").trim();
+        const customSub = (job.cta_subtext ?? "").trim();
+        const endCta = {
+          cta: customCta || goalCta.cta,
+          sub: customSub || (customCta ? brand?.tagline ?? "" : goalCta.sub),
+        };
+        // The card renders with the brand logo when it's on — but a custom CTA
+        // earns its card even with the corner logo unchecked (never silently
+        // discard what the user typed).
+        const cardLogo = logoOpts.logoEnabled && logoOpts.logoPath ? (logoOpts.logoPath as string) : null;
+        const withEndCard = Boolean(cardLogo) || Boolean(customCta);
         const master = await buildMontageMaster(plan, {
           music: (job.music_track ?? "").trim() ? ((job.music_track as string).trim().startsWith("assets/") ? publicUrl((job.music_track as string).trim()) : (job.music_track as string).trim()) : null,
           endCard: withEndCard
-            ? { logoUrl: logoOpts.logoPath as string, bgColor: colors[0] || "#1F3A5F", holdSeconds: END_CARD_SECONDS, cta: endCta.cta, subtext: endCta.sub }
+            ? { logoUrl: cardLogo, bgColor: colors[0] || "#1F3A5F", holdSeconds: END_CARD_SECONDS, cta: endCta.cta, subtext: endCta.sub }
             : null,
         });
         // write the master once, then finish per channel (crop + corner logo)

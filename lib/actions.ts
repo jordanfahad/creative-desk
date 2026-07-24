@@ -558,8 +558,14 @@ export async function setProduction(formData: FormData): Promise<void> {
 export async function setDirection(formData: FormData): Promise<void> {
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return;
+  // Custom closing-card CTA (montage videos). Only written when the inputs were
+  // actually in the form — forms without them must not wipe a saved CTA.
+  const ctaRaw = formData.get("cta_text");
+  const subRaw = formData.get("cta_subtext");
   await supabase.from("jobs").update({
     brief_notes: (formData.get("brief_notes") ?? "").toString().trim() || null,
+    ...(ctaRaw !== null ? { cta_text: ctaRaw.toString().trim().slice(0, 60) || null } : {}),
+    ...(subRaw !== null ? { cta_subtext: subRaw.toString().trim().slice(0, 80) || null } : {}),
     updated_at: now(),
   }).eq("id", id);
   revalidatePath(`/jobs/${id}`);
