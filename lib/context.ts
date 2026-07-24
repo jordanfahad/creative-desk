@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { getBrandKit, listGuidelines, getAssetsByIds, jobInspirationIds, isMontageJob, type Asset, type Job } from "./db";
+import { getBrandKit, listGuidelines, getAssetsByIds, jobInspirationIds, isMontageJob, isReelJob, type Asset, type Job } from "./db";
 import { styleGuidance, styleLabel, BASE_NEGATIVE } from "./style";
-import { clampCarousel } from "./platform";
+import { clampCarousel, reelShotCount } from "./platform";
 
 // ── The context store ────────────────────────────────────────────────
 // "Give the model the guidelines once" = store once (brand_kit + guidelines),
@@ -149,6 +149,12 @@ export const ShotSchema = z.object({
     .number()
     .describe("clip length in seconds; 0 for a static still"),
   caption: z.string().max(600).describe("on-screen or post caption text for this shot"),
+  voiceover: z
+    .string()
+    .max(600)
+    .describe(
+      "For a cinematic reel ONLY: the spoken narration line for this shot (empty string otherwise). ONE natural sentence within the clip's word budget (~2.7 words per second × duration_seconds). Conversational, on-brand, no hashtags/emojis.",
+    ),
 });
 
 export const BriefSchema = z.object({
@@ -182,7 +188,7 @@ export function parseBrief(content: string | null): Brief | null {
   }
   if (obj && typeof obj === "object" && Array.isArray((obj as { shots?: unknown }).shots)) {
     const o = obj as { shots: Array<Record<string, unknown>> };
-    o.shots = o.shots.map((s) => ({ motion: "", negative: "", ...s }));
+    o.shots = o.shots.map((s) => ({ motion: "", negative: "", voiceover: "", ...s }));
   }
   const r = BriefSchema.safeParse(obj);
   return r.success ? r.data : null;
@@ -228,14 +234,17 @@ export function briefSystemPrompt(
   const isOptimize = job.intent === "optimize";
   const isVideo = job.media === "video";
   const isMontage = isMontageJob(job);
+  const isReel = isReelJob(job);
   const goal = job.funnel_goal ? FUNNEL_GOAL_GUIDANCE[job.funnel_goal] : undefined;
   const renderer = isMontage
     ? "a deterministic pan/zoom montage engine (uses the real photos as-is)"
-    : isVideo
-      ? "Kling (image-to-video)"
-      : isOptimize
-        ? "FLUX Kontext (edits a real photo)"
-        : "FLUX (text-to-image)";
+    : isReel
+      ? "Kling clips stitched into ONE cinematic reel (kinetic captions + AI voiceover + music + CTA end-card)"
+      : isVideo
+        ? "Kling (image-to-video)"
+        : isOptimize
+          ? "FLUX Kontext (edits a real photo)"
+          : "FLUX (text-to-image)";
   // With few photos, use them all; with many, curate down to the strongest.
   const montageUse =
     sourceImageCount > 0 && sourceImageCount <= 4
@@ -246,9 +255,11 @@ export function briefSystemPrompt(
     ? `one shot per SELECTED photo (${montageUse})`
     : isOptimize
       ? "exactly 1 shot"
-      : carouselN > 1
-        ? `exactly ${carouselN} shots — these are the ${carouselN} slides of ONE carousel post: a cohesive set (consistent style, lighting and palette) that flows slide-to-slide (open with a hook, build in the middle, end with a soft call-to-action). Each slide must be visually distinct`
-        : "exactly 1 shot";
+      : isReel
+        ? `exactly ${reelShotCount(job)} shots — the sequential beats of ONE cinematic reel: open on a scroll-stopping hook, build with proof/benefit, close on the payoff. Each shot is a distinct cinematic scene that SHARES ONE consistent visual look`
+        : carouselN > 1
+          ? `exactly ${carouselN} shots — these are the ${carouselN} slides of ONE carousel post: a cohesive set (consistent style, lighting and palette) that flows slide-to-slide (open with a hook, build in the middle, end with a soft call-to-action). Each slide must be visually distinct`
+          : "exactly 1 shot";
 
   return [
     `You are a world-class AI image & video PROMPT ENGINEER and the creative director for ${job.title ? "this" : "a"} premium dental brand. You turn a short human direction into production-grade generation prompts that the fal.ai renderer (${renderer}) renders into POLISHED, ON-BRAND, USABLE marketing creatives. Weak, generic prompts are unacceptable — be specific and cinematic.`,
@@ -324,9 +335,22 @@ export function briefSystemPrompt(
           "Generate fresh imagery from the direction. Return 1-4 distinct, strong shots that together cover the idea.",
         ].join("\n"),
     "",
-    isVideo
-      ? "# VIDEO\nEach shot is ONE ~5s Kling clip. Describe the OPENING FRAME richly (the model animates from it) and set `motion` to a premium, gentle camera move (slow push-in, soft pan, subtle parallax) plus natural subject motion. duration_seconds = 5."
-      : "# STILLS\nEach shot is one still image. motion = \"\", duration_seconds = 0.",
+    isReel
+      ? [
+          "# CINEMATIC REEL SHOTS",
+          "Each shot is ONE 5s Kling clip; the shots are CONCATENATED into a single reel. A brand CTA end-card is appended automatically — do NOT create a shot for it.",
+          "For EACH shot return:",
+          "- prompt: the OPENING FRAME described richly (the model animates from it), 45-120 words, and TEXTLESS (captions are burned in later — never bake words into the frame).",
+          "- motion: a premium, gentle camera move (slow push-in, soft pan, subtle parallax) + natural subject motion.",
+          "- caption: a SHORT kinetic on-screen line — the words the viewer READS on this beat (≤ 6 words, editorial, no hashtags/emoji).",
+          "- voiceover: ONE natural spoken sentence for this beat within the word budget (~13 words for a 5s clip). Read in order, the voiceover lines must flow as ONE continuous narration (hook → build → payoff).",
+          "- duration_seconds = 5.",
+          "COHESION IS CRITICAL: define ONE look (color grade / lighting / wardrobe / location) in `concept`, then restate that SAME look-anchor sentence inside EVERY shot.prompt so the independently-generated clips feel like one film.",
+          "Set mode = \"dynamic\".",
+        ].join("\n")
+      : isVideo
+        ? "# VIDEO\nEach shot is ONE ~5s Kling clip. Describe the OPENING FRAME richly (the model animates from it) and set `motion` to a premium, gentle camera move (slow push-in, soft pan, subtle parallax) plus natural subject motion. duration_seconds = 5."
+        : "# STILLS\nEach shot is one still image. motion = \"\", duration_seconds = 0.",
     "",
       ]),
     "# NON-NEGOTIABLE",
@@ -340,7 +364,7 @@ export function briefSystemPrompt(
     ...(isMontage
       ? []
       : [
-          `- Set each shot's \`negative\` to a concise avoid-list that EXTENDS this baseline (add anything specific to the brief/guardrails): ${BASE_NEGATIVE}`,
+          `- Set each shot's \`negative\` to a concise avoid-list that EXTENDS this baseline${isReel ? " AND MUST include: on-screen text, captions, subtitles, words, letters, watermark, logos (captions are burned in later, so the AI frame must be TEXTLESS)" : ""} (add anything specific to the brief/guardrails): ${BASE_NEGATIVE}`,
         ]),
     "",
     `Return ${shotCount} in the structured brief. concept = one line on the idea. post_caption = a short on-brand caption (no discounts/claims). assembly_instructions = how to finish (corner logo, caption, music mood).`,

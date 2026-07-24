@@ -107,6 +107,18 @@ export function clampCarousel(n: unknown): number {
   return Math.min(Math.max(Math.round(Number(n) || 1), 1), MAX_CAROUSEL);
 }
 
+// Cinematic reel: number of AI shots stitched into one reel. Reuses the job's
+// carousel_count field, clamped to a sensible reel range (a reel needs a few
+// beats to breathe; too many gets long/expensive).
+export const REEL_MIN_SHOTS = 3;
+export const REEL_MAX_SHOTS = 6;
+export function reelShotCount(job: { carousel_count?: number | null }): number {
+  const n = Math.round(Number(job.carousel_count) || 4);
+  return Math.min(Math.max(n, REEL_MIN_SHOTS), REEL_MAX_SHOTS);
+}
+export const reelShotCounts = () =>
+  Array.from({ length: REEL_MAX_SHOTS - REEL_MIN_SHOTS + 1 }, (_, i) => i + REEL_MIN_SHOTS);
+
 // The AI master is generated square so it crops cleanly to any channel ratio.
 export const MASTER_IMAGE_SIZE = "square_hd";
 export const MASTER_ASPECT = "1:1";

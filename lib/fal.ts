@@ -90,6 +90,22 @@ export interface VideoSubmission {
   requestId: string;
   model: string;
 }
+// Same shape, clearer name for non-video queue jobs (music, lip-sync, veo3…).
+export type QueueSubmission = VideoSubmission;
+
+/**
+ * Generic fal QUEUE submitter. Any queued model (Kling, Veo 3, lip-sync, music)
+ * enqueues through here; the caller owns the model-specific input body. Returns
+ * the request id + model so the poll path can re-address the queue.
+ */
+export async function enqueueModel(
+  model: string,
+  input: Record<string, unknown>,
+): Promise<QueueSubmission> {
+  ensureConfigured();
+  const res = await fal.queue.submit(model, { input });
+  return { requestId: res.request_id, model };
+}
 
 export async function enqueueVideo(
   prompt: string,
@@ -97,18 +113,14 @@ export async function enqueueVideo(
   durationSeconds = 5,
   negativePrompt = "",
 ): Promise<VideoSubmission> {
-  ensureConfigured();
   // Kling supports "5" | "10"; the seed image's aspect drives the clip aspect.
   const duration = durationSeconds >= 10 ? "10" : "5";
-  const res = await fal.queue.submit(FAL_VIDEO_MODEL, {
-    input: {
-      prompt,
-      image_url: imageUrl,
-      duration,
-      ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
-    },
+  return enqueueModel(FAL_VIDEO_MODEL, {
+    prompt,
+    image_url: imageUrl,
+    duration,
+    ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
   });
-  return { requestId: res.request_id, model: FAL_VIDEO_MODEL };
 }
 
 export type RenderStatus = "queued" | "processing" | "completed" | "failed";
@@ -128,9 +140,36 @@ export async function videoStatus(model: string, requestId: string): Promise<Ren
   }
 }
 
-export async function videoResultUrl(model: string, requestId: string): Promise<string | null> {
+export interface QueueResult {
+  video?: string;
+  audio?: string;
+  images?: string[];
+  raw: unknown;
+}
+
+/**
+ * Model-agnostic queue result. fal returns different envelopes per model kind:
+ * video models (Kling, Veo 3, lip-sync) → data.video.url; audio models (music,
+ * TTS) → data.audio.url (or audio_file.url / audio_url); image models → data.images[].
+ */
+export async function queueResult(model: string, requestId: string): Promise<QueueResult> {
   ensureConfigured();
   const r = await fal.queue.result(model, { requestId });
-  const data = r.data as { video?: { url?: string } };
-  return data.video?.url ?? null;
+  const d = (r.data ?? {}) as {
+    video?: { url?: string };
+    audio?: { url?: string };
+    audio_file?: { url?: string };
+    audio_url?: string;
+    images?: Array<{ url?: string }>;
+  };
+  const audio = d.audio?.url ?? d.audio_file?.url ?? d.audio_url;
+  const images = Array.isArray(d.images)
+    ? d.images.map((i) => i?.url).filter((u): u is string => Boolean(u))
+    : undefined;
+  return { video: d.video?.url, audio, images, raw: r.data };
+}
+
+// Unchanged signature/behavior for the Kling poll path — delegates to queueResult.
+export async function videoResultUrl(model: string, requestId: string): Promise<string | null> {
+  return (await queueResult(model, requestId)).video ?? null;
 }

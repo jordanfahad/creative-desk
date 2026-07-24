@@ -242,12 +242,16 @@ function endFont(): Font {
   _endFont = parseFont(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
   return _endFont;
 }
-/** SVG <path> for one centered line, baseline at `baselineY`. */
-function linePath(f: Font, text: string, baselineY: number, fontSize: number, fill: string): string {
+/** SVG <path> for one line centered within `canvasW`, baseline at `baselineY`. */
+function linePathIn(canvasW: number, f: Font, text: string, baselineY: number, fontSize: number, fill: string): string {
   const w = f.getAdvanceWidth(text, fontSize);
-  const p = f.getPath(text, (SRC - w) / 2, baselineY, fontSize);
+  const p = f.getPath(text, (canvasW - w) / 2, baselineY, fontSize);
   p.fill = fill;
   return p.toSVG(2);
+}
+/** SVG <path> for one centered line on the square card canvas (SRC). */
+function linePath(f: Font, text: string, baselineY: number, fontSize: number, fill: string): string {
+  return linePathIn(SRC, f, text, baselineY, fontSize, fill);
 }
 
 // ── Arabic support ───────────────────────────────────────────────────
@@ -310,12 +314,12 @@ function lineWidth(t: string, fontSize: number): number {
   return w;
 }
 
-/** SVG paths for one centered (display-order) line, either script. */
-function centeredLine(t: string, baselineY: number, fontSize: number, fill: string): string {
-  if (!AR_RE.test(t)) return linePath(endFont(), t, baselineY, fontSize, fill);
+/** SVG paths for one line centered within `canvasW` (display-order), either script. */
+function centeredLineIn(canvasW: number, t: string, baselineY: number, fontSize: number, fill: string): string {
+  if (!AR_RE.test(t)) return linePathIn(canvasW, endFont(), t, baselineY, fontSize, fill);
   const f = arFont();
   const s = fontSize / f.unitsPerEm;
-  let x = (SRC - lineWidth(t, fontSize)) / 2;
+  let x = (canvasW - lineWidth(t, fontSize)) / 2;
   const parts: string[] = [];
   for (const ch of t) {
     const g = f.charToGlyph(ch);
@@ -327,6 +331,10 @@ function centeredLine(t: string, baselineY: number, fontSize: number, fill: stri
     x += (g.advanceWidth ?? 600) * s;
   }
   return parts.join("");
+}
+/** SVG paths for one centered line on the square card canvas (SRC). */
+function centeredLine(t: string, baselineY: number, fontSize: number, fill: string): string {
+  return centeredLineIn(SRC, t, baselineY, fontSize, fill);
 }
 
 /** Lighten (f>1) or darken (f<1) a #rgb/#rrggbb hex color. */
@@ -551,6 +559,96 @@ export async function appendEndCard(
   ]);
 }
 
+// ── kinetic captions (burned onto video clips) ───────────────────────────────
+
+export interface CaptionOpts {
+  fill?: string; // text color (default white)
+  position?: "lower" | "center"; // vertical placement (default lower-third)
+  scrim?: boolean; // legibility gradient behind the text (default true)
+}
+
+/**
+ * Render an editorial caption to a TRANSPARENT PNG at exact platform w×h, ready
+ * to overlay 1:1 onto a clip. Reuses the vectorized glyph engine (Latin + Arabic
+ * bidi via prepLine) so it renders on Vercel regardless of fonts, adds a subtle
+ * lower-third scrim + drop shadow for legibility over any footage, and shrinks
+ * the type to fit the safe width. Empty text → a fully transparent PNG (no-op).
+ */
+export async function renderCaptionPng(text: string, w: number, h: number, opts: CaptionOpts = {}): Promise<Buffer> {
+  const clean = (text ?? "").trim();
+  const fill = /^#[0-9a-fA-F]{3,6}$/.test(opts.fill ?? "") ? (opts.fill as string) : "#ffffff";
+  const scrim = opts.scrim !== false;
+  const pos = opts.position ?? "lower";
+
+  if (!clean) {
+    return sharp({ create: { width: w, height: h, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+      .png()
+      .toBuffer();
+  }
+
+  // Wrap to ≤2 lines, put each into display (bidi) order.
+  const rawLines = wrapLines(clean, 18, 2).map(prepLine);
+  const maxW = w * 0.86;
+
+  // Fit-to-width: start bold, shrink so the widest line fits the safe box.
+  let fontSize = Math.round(w * 0.062);
+  const widest = () => Math.max(...rawLines.map((ln) => lineWidth(ln, fontSize)));
+  if (widest() > maxW) fontSize = Math.max(Math.floor(w * 0.03), Math.floor((fontSize * maxW) / widest()));
+  const lineHeight = Math.round(fontSize * 1.16);
+
+  const n = rawLines.length;
+  // Last baseline: lower-third (above platform UI) or vertical center.
+  const lastBaseline = pos === "center" ? Math.round(h / 2 + (n - 1) * lineHeight * 0.5) : Math.round(h * 0.84);
+  const firstBaseline = lastBaseline - (n - 1) * lineHeight;
+
+  const paths = rawLines.map((ln, i) => centeredLineIn(w, ln, firstBaseline + i * lineHeight, fontSize, fill)).join("");
+
+  const blur = Math.max(2, Math.round(fontSize * 0.06));
+  const dy = Math.max(1, Math.round(fontSize * 0.045));
+  const shadow = `<filter id="sh" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="${blur}"/><feOffset dx="0" dy="${dy}" result="o"/><feFlood flood-color="#000000" flood-opacity="0.6"/><feComposite in2="o" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+
+  // Scrim gradient sits BEHIND the text (lower third) for legibility over any footage.
+  const scrimTop = Math.max(Math.round(h * 0.5), firstBaseline - Math.round(fontSize * 1.7));
+  const scrimGrad = scrim
+    ? `<linearGradient id="scr" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000000" stop-opacity="0"/><stop offset="100%" stop-color="#000000" stop-opacity="0.5"/></linearGradient>`
+    : "";
+  const scrimRect = scrim ? `<rect x="0" y="${scrimTop}" width="${w}" height="${h - scrimTop}" fill="url(#scr)"/>` : "";
+
+  const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg"><defs>${shadow}${scrimGrad}</defs>${scrimRect}<g filter="url(#sh)">${paths}</g></svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+/**
+ * Overlay a caption PNG (exact w×h) onto a clip, fading in shortly after the cut
+ * and out before the next. This is a MID-CLIP alpha overlay (the rest of the
+ * codebase only concat-appends). Audio is copied through untouched. If holdSecs
+ * is omitted it's derived from the clip length.
+ */
+export async function overlayCaption(
+  clipIn: string,
+  pngPath: string,
+  clipOut: string,
+  opts: { fadeInAt?: number; holdSecs?: number; fadeDur?: number } = {},
+): Promise<void> {
+  const dur = await videoDuration(clipIn);
+  const a = Math.min(opts.fadeInAt ?? 0.3, dur * 0.15);
+  const hold = opts.holdSecs ?? Math.max(0.6, dur - a - 0.25);
+  const fd = Math.min(opts.fadeDur ?? 0.4, hold / 2);
+  await runFfmpeg([
+    "-y",
+    "-i", clipIn,
+    "-loop", "1", "-t", hold.toFixed(2), "-i", pngPath,
+    "-filter_complex",
+    `[1:v]format=rgba,fade=t=in:st=0:d=${fd.toFixed(2)}:alpha=1,fade=t=out:st=${(hold - fd).toFixed(2)}:d=${fd.toFixed(2)}:alpha=1,setpts=PTS-STARTPTS+${a.toFixed(2)}/TB[cap];[0:v][cap]overlay=0:0:enable='between(t,${a.toFixed(2)},${(a + hold).toFixed(2)})':format=auto[v]`,
+    "-map", "[v]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-c:a", "copy",
+    "-movflags", "+faststart",
+    clipOut,
+  ]);
+}
+
 /**
  * Mux a soundtrack (preset key or uploaded-track URL) into a finished video,
  * fitted to its exact length with fades. Video stream is copied (no re-encode).
@@ -571,6 +669,160 @@ export async function muxMusicIntoVideo(videoPath: string, outputPath: string, c
       "-shortest", "-movflags", "+faststart",
       outputPath,
     ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+// Duration of any media file (video OR audio) — the banner parse works on mp3 too.
+export const mediaDuration = videoDuration;
+
+// ── cinematic reel assembly ──────────────────────────────────────────────────
+
+/**
+ * Concatenate finished clips (already at w×h) into ONE silent video with short
+ * crossfades. Returns each clip's start offset in the final timeline + the total
+ * duration, so a voiceover track can be aligned to the cut points. Video-only —
+ * audio (music/VO) is muxed afterwards.
+ */
+export async function concatVideosXfade(
+  clips: string[],
+  out: string,
+  w: number,
+  h: number,
+  crossfade = 0.5,
+): Promise<{ offsets: number[]; total: number }> {
+  if (!clips.length) throw new Error("concatVideosXfade: no clips");
+  const durs: number[] = [];
+  for (const c of clips) durs.push(await videoDuration(c));
+
+  if (clips.length === 1) {
+    await runFfmpeg([
+      "-y", "-i", clips[0],
+      "-vf", `scale=${w}:${h},setsar=1,fps=${FPS},format=yuv420p`,
+      "-an",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart",
+      out,
+    ]);
+    return { offsets: [0], total: durs[0] };
+  }
+
+  // Crossfade ≤ 40% of the shortest clip so even a short beat stays visible.
+  const T = Math.min(crossfade, Math.min(...durs) * 0.4);
+  const inputs: string[] = [];
+  for (const c of clips) inputs.push("-i", c);
+  const parts: string[] = [];
+  for (let i = 0; i < clips.length; i++) {
+    parts.push(`[${i}:v]scale=${w}:${h},setsar=1,fps=${FPS},format=yuv420p[v${i}]`);
+  }
+  const offsets = [0];
+  let last = "v0";
+  let acc = durs[0];
+  for (let i = 1; i < clips.length; i++) {
+    const o = i === clips.length - 1 ? "vout" : `x${i}`;
+    parts.push(`[${last}][v${i}]xfade=transition=fade:duration=${T.toFixed(3)}:offset=${(acc - T).toFixed(3)}[${o}]`);
+    offsets.push(Math.max(0, acc - T)); // narration for beat i starts as it fades in
+    last = o;
+    acc = acc + durs[i] - T;
+  }
+  const total = acc; // sum(durs) - (n-1)*T
+  await runFfmpeg([
+    "-y", ...inputs,
+    "-filter_complex", parts.join(";"),
+    "-map", "[vout]",
+    "-t", total.toFixed(3),
+    "-an",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    out,
+  ]);
+  return { offsets, total };
+}
+
+/**
+ * Build ONE voiceover track: place each shot's VO clip at its offset in the reel
+ * timeline (adelay), mix, pad/trim to `total` seconds. Missing/empty VO clips are
+ * skipped. Adjacent narration lines may lightly overlap — that reads as natural
+ * continuous VO (lines are written to flow).
+ */
+export async function assembleVoiceTrack(
+  voPaths: (string | null)[],
+  offsets: number[],
+  total: number,
+  out: string,
+): Promise<void> {
+  const present: { path: string; off: number }[] = [];
+  voPaths.forEach((p, i) => {
+    if (p) present.push({ path: p, off: Math.max(0, offsets[i] ?? 0) });
+  });
+  if (!present.length) throw new Error("assembleVoiceTrack: no voiceover clips");
+  const inputs: string[] = [];
+  const parts: string[] = [];
+  present.forEach((v, i) => {
+    inputs.push("-i", v.path);
+    const ms = Math.round(v.off * 1000);
+    parts.push(`[${i}:a]adelay=${ms}|${ms}[a${i}]`);
+  });
+  const labels = present.map((_, i) => `[a${i}]`).join("");
+  parts.push(
+    `${labels}amix=inputs=${present.length}:normalize=0:dropout_transition=0,apad,atrim=0:${total.toFixed(3)},alimiter=limit=0.95[vo]`,
+  );
+  await runFfmpeg([
+    "-y", ...inputs,
+    "-filter_complex", parts.join(";"),
+    "-map", "[vo]",
+    "-c:a", "aac", "-b:a", "160k",
+    out,
+  ]);
+}
+
+/**
+ * Mux voiceover and/or music under a finished video. When both are present the
+ * music is DUCKED under the voice (sidechain compression), so narration stays
+ * intelligible. Video stream is copied. voPath is a full-length aligned track
+ * (assembleVoiceTrack); musicChoice is a preset key or http(s) url. Either null.
+ */
+export async function muxVoiceAndMusic(
+  videoPath: string,
+  voPath: string | null,
+  musicChoice: string | null,
+  out: string,
+): Promise<void> {
+  const dir = join(tmpdir(), `cd-mix-${randomUUID().slice(0, 8)}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const seconds = await videoDuration(videoPath);
+    const musicPath = musicChoice ? await prepareMusicTrack(dir, musicChoice, seconds) : null;
+
+    if (voPath && musicPath) {
+      // Duck the music while the voice speaks, then mix voice on top.
+      await runFfmpeg([
+        "-y", "-i", videoPath, "-i", musicPath, "-i", voPath,
+        // asplit the voice: one copy triggers the sidechain duck, the other is
+        // mixed on top (an ffmpeg label can only be consumed once).
+        "-filter_complex",
+        `[2:a]volume=1.6,asplit=2[v2a][v2b];[1:a]volume=1.0[m];[m][v2a]sidechaincompress=threshold=0.02:ratio=10:attack=5:release=350[md];[md][v2b]amix=inputs=2:normalize=0:dropout_transition=0,alimiter=limit=0.95[a]`,
+        "-map", "0:v", "-map", "[a]",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+        "-shortest", "-movflags", "+faststart",
+        out,
+      ]);
+      return;
+    }
+    const single = voPath ?? musicPath;
+    if (single) {
+      await runFfmpeg([
+        "-y", "-i", videoPath, "-i", single,
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+        "-shortest", "-movflags", "+faststart",
+        out,
+      ]);
+      return;
+    }
+    // Nothing to add — keep the video as-is (silent).
+    await runFfmpeg(["-y", "-i", videoPath, "-c:v", "copy", "-an", "-movflags", "+faststart", out]);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }

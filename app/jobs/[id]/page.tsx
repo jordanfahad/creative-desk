@@ -11,6 +11,7 @@ import {
   jobPlatformKeys,
   jobInspirationIds,
   isMontageJob,
+  isReelJob,
 } from "@/lib/db";
 import { parseBrief, type Brief } from "@/lib/context";
 import {
@@ -27,7 +28,7 @@ import {
   removeJobInspiration,
   setInspirationNote,
 } from "@/lib/actions";
-import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS, carouselCounts } from "@/lib/platform";
+import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS, carouselCounts, reelShotCounts, reelShotCount } from "@/lib/platform";
 import { STYLE_PRESETS } from "@/lib/style";
 import JobActions from "./JobActions";
 import GoalPicker from "./GoalPicker";
@@ -35,6 +36,7 @@ import ResultsActions from "./ResultsActions";
 import DeleteRenderButton from "./DeleteRenderButton";
 import { JobAssetUpload } from "@/components/JobAssetUpload";
 import { MusicPicker } from "@/components/MusicPicker";
+import { VoicePicker } from "@/components/VoicePicker";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +77,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
   const isOptimize = job.intent === "optimize";
   const isVideoJob = job.media === "video";
   const isMontage = isMontageJob(job);
+  const isReel = isReelJob(job);
 
   // Step numbers flow top-to-bottom over whichever cards this job type shows.
   let stepNo = 0;
@@ -244,19 +247,25 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
               )}
               {/* Soundtrack applies to EVERY video type — never hidden behind a mode. */}
               <MusicPicker jobId={job.id} current={job.music_track ?? ""} />
+              {/* Voiceover is a reel-only layer (spoken narration baked into the reel). */}
+              {isReel && (
+                <VoicePicker jobId={job.id} enabled={job.voiceover_enabled === 1} voice={job.vo_voice ?? ""} />
+              )}
 
               <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
                 Mode:{" "}
                 <strong>
-                  {(job.carousel_count ?? 1) > 1
-                    ? `carousel · ${job.carousel_count} clips`
-                    : isMontage
-                      ? "photo montage"
-                      : job.video_mode === "passthrough"
-                        ? "enhance video"
-                        : "AI video"}
+                  {isReel
+                    ? `cinematic reel · ${reelShotCount(job)} shots`
+                    : (job.carousel_count ?? 1) > 1
+                      ? `carousel · ${job.carousel_count} clips`
+                      : isMontage
+                        ? "photo montage"
+                        : job.video_mode === "passthrough"
+                          ? "enhance video"
+                          : "AI video"}
                 </strong>{" "}
-                — set under “Channels &amp; output” (a carousel makes separate clips, not one montage).
+                — set under “Channels &amp; output”{isReel ? " (several AI clips stitched into one reel with kinetic captions + voiceover)." : " (a carousel makes separate clips, not one montage)."}
               </p>
             </>
           ) : (
@@ -384,13 +393,23 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
             {!isOptimize && (
               <div className="row" style={{ gap: 6 }}>
                 <span className="small muted">format</span>
-                <select name="carousel_count" defaultValue={String(job.carousel_count ?? 1)} style={{ width: "auto" }}>
-                  {carouselCounts().map((n) => (
-                    <option key={n} value={n}>
-                      {n === 1 ? `Single ${isVideoJob ? "clip" : "image"}` : `Carousel · ${n} slides`}
-                    </option>
-                  ))}
-                </select>
+                {isReel ? (
+                  <select name="carousel_count" defaultValue={String(reelShotCount(job))} style={{ width: "auto" }}>
+                    {reelShotCounts().map((n) => (
+                      <option key={n} value={n}>
+                        Reel · {n} shots
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select name="carousel_count" defaultValue={String(job.carousel_count ?? 1)} style={{ width: "auto" }}>
+                    {carouselCounts().map((n) => (
+                      <option key={n} value={n}>
+                        {n === 1 ? `Single ${isVideoJob ? "clip" : "image"}` : `Carousel · ${n} slides`}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             )}
             <div className="row" style={{ gap: 6 }}>
@@ -440,6 +459,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                 <select name="video_mode" defaultValue={job.video_mode} style={{ width: "auto" }}>
                   {isOptimize && <option value="passthrough">size + brand only (no AI)</option>}
                   <option value="animate">animate / generate (AI)</option>
+                  {!isOptimize && <option value="reel">cinematic reel — AI clips + captions + voiceover</option>}
                   <option value="montage">photo montage — images → video (no AI credits)</option>
                 </select>
               </div>

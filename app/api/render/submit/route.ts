@@ -14,6 +14,7 @@ import {
   jobPlatformKeys,
   jobInspirationIds,
   isMontageJob,
+  isReelJob,
 } from "@/lib/db";
 import { uploadBuffer, publicUrl } from "@/lib/storage";
 import { parseBrief, type Brief } from "@/lib/context";
@@ -21,7 +22,7 @@ import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
 import { buildMontageMaster, normalizeMotion, endCtaFor, muxMusicIntoVideo, type MontageShot } from "@/lib/montage";
-import { platformOf, clampCarousel, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
+import { platformOf, clampCarousel, reelShotCount, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
 import { BASE_NEGATIVE } from "@/lib/style";
 
 export const runtime = "nodejs";
@@ -336,6 +337,52 @@ export async function POST(req: NextRequest) {
               await insertRender({ group: i, sourceAssetId: videoAssets[i].id, platform: platform.key, status: "failed", error: errMsg(e), meta: {} });
               results.push({ group: i, platform: platform.key, status: "failed", error: errMsg(e) });
             }
+          }
+        }
+      } else if (isReelJob(job)) {
+        // Cinematic reel: enqueue N textless Kling shots (one per storyboard
+        // beat). These masters are NOT fanned out per-platform — the poll route
+        // waits for all N to finish, then assembles the captioned, voiced, scored
+        // reel per channel (see maybeAssembleReel/assembleReel in the poll route).
+        // A reel is built FROM its storyboard brief (captions + narration live
+        // there), so require one — never enqueue charged, undifferentiated clips.
+        if (!brief || briefIsMontage) {
+          return NextResponse.json(
+            { error: "Optimize the prompt first — a cinematic reel is built from its storyboard brief (captions + narration come from it)." },
+            { status: 400 },
+          );
+        }
+        const shots = brief.shots;
+        const n = reelShotCount(job);
+        for (let i = 0; i < n; i++) {
+          // Per-shot guard: a mid-loop enqueue failure records a FAILED master
+          // (rollupReel then fails the reel cleanly) instead of throwing out of
+          // the whole submit and stranding the shots already enqueued.
+          try {
+            const shot = shots[i] ?? shots[0];
+            const optimized = shot?.prompt;
+            const motion = shot?.motion ? ` Camera/motion: ${shot.motion}.` : "";
+            const instruction = optimized
+              ? `${optimized}${motion}`
+              : `${job.brief_notes || "An on-brand cinematic dental clip."} ${brandHint}`;
+            const seedPrompt = optimized || `${job.brief_notes || "An on-brand cinematic dental clip."} ${brandHint}`;
+            let seedUrl: string;
+            let seedAssetId: number | null = null;
+            if (imageAssets.length) {
+              const a = imageAssets[i] ?? imageAssets[i % imageAssets.length];
+              seedUrl = a.local_path;
+              seedAssetId = a.id;
+            } else {
+              seedUrl = (await generateImage(seedPrompt, MASTER_IMAGE_SIZE)).url;
+            }
+            const negative = shot?.negative || BASE_NEGATIVE;
+            const sub = await enqueueVideo(instruction, seedUrl, 5, negative);
+            await insertRender({ group: i, sourceAssetId: seedAssetId, platform: null, status: "processing", request_id: sub.requestId, status_url: sub.model, meta: { reel: true, shot: i, of: n } });
+            results.push({ group: i, platform: null, status: "processing" });
+          } catch (e) {
+            await insertRender({ group: i, sourceAssetId: null, platform: null, status: "failed", error: errMsg(e), meta: { reel: true, shot: i, of: n } });
+            results.push({ group: i, platform: null, status: "failed", error: errMsg(e) });
+            break; // a failed shot fails the reel cleanly (rollupReel → failed)
           }
         }
       } else {

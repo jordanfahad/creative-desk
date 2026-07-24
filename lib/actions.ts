@@ -11,12 +11,12 @@ import { SESSION_COOKIE } from "./session";
 import { uploadBuffer, uploadPrivate, PRIVATE_BUCKET, publicUrl } from "./storage";
 import { parseBrief } from "./context";
 import { extractPdfText } from "./pdf";
-import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms, clampCarousel } from "./platform";
+import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms, clampCarousel, reelShotCount } from "./platform";
 import { STYLE_KEYS } from "./style";
 
 const INTENTS = new Set(["optimize", "create"]);
 const MEDIAS = new Set(["image", "video"]);
-const VIDEO_MODES = new Set(["passthrough", "ai_enhance", "animate", "generate", "montage"]);
+const VIDEO_MODES = new Set(["passthrough", "ai_enhance", "animate", "generate", "montage", "reel"]);
 const FUNNEL_GOALS = new Set(["awareness", "consideration", "conversion"]);
 const GUIDELINE_SOURCES = new Set(["creative", "ceo", "general"]);
 
@@ -59,9 +59,16 @@ function normalizeSource(raw: FormDataEntryValue | null): string {
 }
 function readSettings(formData: FormData) {
   const pos = (formData.get("logo_position") ?? "bottom-right").toString();
-  const vm = (formData.get("video_mode") ?? "animate").toString();
+  const vmRaw = (formData.get("video_mode") ?? "animate").toString();
+  const video_mode = VIDEO_MODES.has(vmRaw) ? vmRaw : "animate";
   const style = (formData.get("style") ?? "auto").toString();
-  const carousel_count = clampCarousel(formData.get("carousel_count"));
+  // Reconcile the shot/slide count with the mode so the stored state can never
+  // contradict isMontageJob/isReelJob: montage is a single-output video (a
+  // stranded carousel_count>=2 would silently route it into the paid Kling
+  // path); a reel forces its own 3..6 shot range.
+  let carousel_count = clampCarousel(formData.get("carousel_count"));
+  if (video_mode === "montage") carousel_count = 1;
+  else if (video_mode === "reel") carousel_count = reelShotCount({ carousel_count });
   const logoIdRaw = formData.get("logo_id");
   const logoIdNum = Number(logoIdRaw);
   const logo_id = logoIdRaw != null && logoIdRaw !== "" && Number.isFinite(logoIdNum) ? logoIdNum : null;
@@ -72,7 +79,7 @@ function readSettings(formData: FormData) {
     logo_position: (LOGO_POSITIONS as readonly string[]).includes(pos) ? pos : "bottom-right",
     logo_id,
     combine: formData.get("combine") ? 1 : 0,
-    video_mode: VIDEO_MODES.has(vm) ? vm : "animate",
+    video_mode,
     style: STYLE_KEYS.includes(style) ? style : "auto",
     carousel_count,
   };
@@ -270,6 +277,9 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
     const aiMode = job.video_mode === "animate" || job.video_mode === "generate";
     if (addedVideo) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
     else if (addedImage && !aiMode) update.video_mode = "montage";
+    // Montage is single-output: never leave a stranded carousel_count>=2 (which
+    // would make isMontageJob false and route it into the paid Kling path).
+    if (update.video_mode === "montage") update.carousel_count = 1;
   }
   await supabase.from("jobs").update(update).eq("id", jobId);
   revalidatePath(`/jobs/${jobId}`);
@@ -399,6 +409,9 @@ export async function attachJobAssets(
     const aiMode = job.video_mode === "animate" || job.video_mode === "generate";
     if (addedVideo) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
     else if (addedImage && !aiMode) update.video_mode = "montage";
+    // Montage is single-output: never leave a stranded carousel_count>=2 (which
+    // would make isMontageJob false and route it into the paid Kling path).
+    if (update.video_mode === "montage") update.carousel_count = 1;
   }
   await supabase.from("jobs").update(update).eq("id", jobId);
   revalidatePath(`/jobs/${jobId}`);
@@ -591,6 +604,24 @@ export async function setJobMusic(formData: FormData): Promise<void> {
   let track = (formData.get("music_track") ?? "").toString().trim();
   if (track && !MUSIC_PRESET_KEYS.has(track) && !track.startsWith("assets/")) track = "";
   await supabase.from("jobs").update({ music_track: track || null, updated_at: now() }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+}
+
+// Cinematic-reel voiceover: on/off + which OpenAI TTS voice. Unknown voices are
+// dropped so the renderer falls back to its default rather than failing.
+const TTS_VOICE_KEYS = new Set([
+  "alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse",
+]);
+export async function setJobVoiceover(formData: FormData): Promise<void> {
+  const id = Number(formData.get("job_id"));
+  if (!Number.isFinite(id)) return;
+  const enabled = ["1", "true", "on"].includes((formData.get("voiceover_enabled") ?? "").toString().trim());
+  const voiceRaw = (formData.get("vo_voice") ?? "").toString().trim();
+  const voice = TTS_VOICE_KEYS.has(voiceRaw) ? voiceRaw : null;
+  await supabase
+    .from("jobs")
+    .update({ voiceover_enabled: enabled ? 1 : 0, vo_voice: voice, updated_at: now() })
+    .eq("id", id);
   revalidatePath(`/jobs/${id}`);
 }
 

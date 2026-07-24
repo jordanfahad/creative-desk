@@ -63,7 +63,11 @@ export interface Job {
   intent: "optimize" | "create";
   media: "image" | "video";
   platforms: string;
-  video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage";
+  video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage" | "reel";
+  /** Cinematic reel: bake an AI voiceover into the reel (0/1). */
+  voiceover_enabled: number;
+  /** OpenAI TTS voice for the reel voiceover (e.g. "alloy"); null = default. */
+  vo_voice: string | null;
   /** Funnel stage steering the AI brief: awareness | consideration | conversion | null. */
     funnel_goal: string | null;
   /** Custom closing-card call-to-action (e.g. "WhatsApp us — 04 123 4567"); null = goal-based default. */
@@ -105,7 +109,9 @@ export interface Render {
   shot_index: number;
   request_id: string | null;
   status_url: string | null;
-  status: "queued" | "processing" | "completed" | "failed";
+  // "finishing" (master claimed for per-platform fan-out) and "assembling" (reel
+  // shot-0 claimed for stitching) are transient single-owner claim states.
+  status: "queued" | "processing" | "completed" | "failed" | "finishing" | "assembling";
   result_url: string | null;
   platform: string | null;
   source_asset_id: number | null;
@@ -232,6 +238,13 @@ export function jobInspirationIds(job: Pick<Job, "inspiration_ids">): number[] {
 // separate items, so it is NOT a montage — it routes to the multi-clip path.
 export function isMontageJob(job: Pick<Job, "media" | "video_mode" | "carousel_count">): boolean {
   return job.media === "video" && job.video_mode === "montage" && (job.carousel_count ?? 1) < 2;
+}
+
+// A cinematic reel: several AI clips + kinetic captions + optional voiceover +
+// music, CONCATENATED into one deliverable per platform (not separate clips like
+// a carousel). Distinct from montage — carousel_count is reused as the shot count.
+export function isReelJob(job: Pick<Job, "media" | "video_mode">): boolean {
+  return job.media === "video" && job.video_mode === "reel";
 }
 
 export function jobPlatformKeys(job: Job): string[] {
