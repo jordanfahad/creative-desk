@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import ffmpegStatic from "ffmpeg-static";
-import opentype from "opentype.js";
+import { parse as parseFont, type Font } from "opentype.js";
 import { loadLogoBuffer } from "./finish";
 import { FONT_SANS_BOLD_B64 } from "./fonts";
 
@@ -233,15 +233,15 @@ async function fetchImage(url: string): Promise<Buffer> {
 // Text is drawn as VECTOR PATHS (opentype.js) so it renders identically on
 // Vercel — librsvg there ignores @font-face data-URIs, so any font-based SVG
 // text comes out as tofu. Paths need no font at render time.
-let _endFont: opentype.Font | null = null;
-function endFont(): opentype.Font {
+let _endFont: Font | null = null;
+function endFont(): Font {
   if (_endFont) return _endFont;
   const b = Buffer.from(FONT_SANS_BOLD_B64, "base64");
-  _endFont = opentype.parse(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+  _endFont = parseFont(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
   return _endFont;
 }
 /** SVG <path> for one centered line, baseline at `baselineY`. */
-function linePath(f: opentype.Font, text: string, baselineY: number, fontSize: number, fill: string): string {
+function linePath(f: Font, text: string, baselineY: number, fontSize: number, fill: string): string {
   const w = f.getAdvanceWidth(text, fontSize);
   const p = f.getPath(text, (SRC - w) / 2, baselineY, fontSize);
   p.fill = fill;
