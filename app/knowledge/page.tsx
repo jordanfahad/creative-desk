@@ -202,11 +202,11 @@ export default function KnowledgePage() {
           </li>
         </ol>
         <p className="small muted" style={{ marginBottom: 0 }}>
-          <strong>Photo-montage</strong> videos end on a branded closing card — set your own{" "}
-          <strong>call-to-action</strong> (e.g. a WhatsApp number or offer) in the direction step,
-          or leave it blank for an automatic line based on your goal. Montages can also bake in a
-          soundtrack; AI clips and enhanced uploads deliver without a closing card and are silent
-          by design — add music in your editor or in-app.
+          Montages and AI clips end on a <strong>branded closing card</strong> — set your own{" "}
+          <strong>call-to-action</strong> (a WhatsApp number, an offer — English or Arabic) in the
+          direction step, or leave it blank for an automatic line based on your goal. Montages can
+          also bake in a soundtrack; AI clips and enhanced uploads are silent by design — add music
+          in your editor or in-app. Enhanced uploads deliver as-is, without a closing card.
         </p>
       </div>
 

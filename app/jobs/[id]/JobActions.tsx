@@ -21,10 +21,14 @@ export default function JobActions({ jobId, status, intent, media, videoMode, ch
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Auto-poll while a video master is rendering.
+  // Auto-poll while a video master is rendering. In-flight guard: fan-out can
+  // take >10s, and overlapping poll requests must not stack up.
   useEffect(() => {
     if (status === "submitted") {
+      let inFlight = false;
       pollTimer.current = setInterval(async () => {
+        if (inFlight) return;
+        inFlight = true;
         try {
           await fetch("/api/render/poll", {
             method: "POST",
@@ -34,6 +38,8 @@ export default function JobActions({ jobId, status, intent, media, videoMode, ch
           router.refresh();
         } catch {
           /* keep trying */
+        } finally {
+          inFlight = false;
         }
       }, 10000);
     }

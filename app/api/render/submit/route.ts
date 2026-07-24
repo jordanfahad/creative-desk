@@ -20,7 +20,7 @@ import { parseBrief, type Brief } from "@/lib/context";
 import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
-import { buildMontageMaster, normalizeMotion, type MontageShot } from "@/lib/montage";
+import { buildMontageMaster, normalizeMotion, endCtaFor, type MontageShot } from "@/lib/montage";
 import { platformOf, clampCarousel, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
 import { BASE_NEGATIVE } from "@/lib/style";
 
@@ -279,19 +279,9 @@ export async function POST(req: NextRequest) {
         const photoSeconds = running;
         // Closing-card call-to-action: the job's CUSTOM CTA/subtext win (each ad
         // can carry its own offer/number); missing pieces fall back to a
-        // goal-aware default.
-        const CTA: Record<string, { cta: string; sub: string }> = {
-          conversion: { cta: "Book your visit today", sub: brand?.tagline ?? "" },
-          consideration: { cta: "See what’s possible", sub: brand?.tagline ?? "" },
-          awareness: { cta: brand?.tagline || brand?.clinic_name || "Beyond Smiles", sub: "" },
-        };
-        const goalCta = (job.funnel_goal && CTA[job.funnel_goal]) || { cta: "Book your visit today", sub: brand?.tagline ?? "" };
+        // goal-aware default. Shared with the Kling path (endCtaFor).
         const customCta = (job.cta_text ?? "").trim();
-        const customSub = (job.cta_subtext ?? "").trim();
-        const endCta = {
-          cta: customCta || goalCta.cta,
-          sub: customSub || (customCta ? brand?.tagline ?? "" : goalCta.sub),
-        };
+        const endCta = endCtaFor(job, brand);
         // The card renders with the brand logo when it's on — but a custom CTA
         // earns its card even with the corner logo unchecked (never silently
         // discard what the user typed).

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile, unlink, mkdir } from "node:fs/promises";
+import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -7,6 +7,7 @@ import { supabase, getJob, getBrandKit, getLogo, jobPlatformKeys, type Render } 
 import { uploadBuffer } from "@/lib/storage";
 import { videoStatus, videoResultUrl } from "@/lib/fal";
 import { finishVideo } from "@/lib/finishVideo";
+import { buildEndCardImage, appendEndCard, endCtaFor } from "@/lib/montage";
 import { platformOf, type LogoPosition } from "@/lib/platform";
 
 export const runtime = "nodejs";
@@ -67,8 +68,29 @@ export async function POST(req: NextRequest) {
         }
         continue;
       }
-      await fanOutVideo(r, masterUrl);
-      await supabase.from("renders").update({ status: "completed", attempts, updated_at: new Date().toISOString() }).eq("id", r.id);
+      // Atomically CLAIM the master before the (slow) fan-out so an overlapping
+      // poll invocation can't fan out the same master twice — "finishing" is not
+      // pollable. Bump attempts in the claim so MAX_ATTEMPTS still bounds crashes.
+      const { data: claimed } = await supabase
+        .from("renders")
+        .update({ status: "finishing", attempts, updated_at: new Date().toISOString() })
+        .eq("id", r.id)
+        .eq("status", r.status)
+        .select("id");
+      if (!claimed?.length) continue; // another invocation owns it
+      try {
+        await fanOutVideo(r, masterUrl);
+      } catch (e) {
+        // release the claim so a later poll can retry (bounded by attempts)
+        const nextStatus = attempts >= MAX_ATTEMPTS ? "failed" : "processing";
+        await supabase
+          .from("renders")
+          .update({ status: nextStatus, error: errMsg(e).slice(0, 800), updated_at: new Date().toISOString() })
+          .eq("id", r.id);
+        updated.push({ id: r.id, status: nextStatus });
+        continue;
+      }
+      await supabase.from("renders").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", r.id);
       updated.push({ id: r.id, status: "completed" });
     } catch (e) {
       if (attempts >= MAX_ATTEMPTS || !isTransient(e)) {
@@ -102,14 +124,65 @@ async function fanOutVideo(master: Render, masterUrl: string) {
   const dir = join(tmpdir(), "creative-desk");
   await mkdir(dir, { recursive: true });
 
+  // Closing CTA card for AI clips — same rule as montage: the brand logo earns a
+  // card, and a custom CTA earns one even with the corner logo off.
+  const customCta = (job.cta_text ?? "").trim();
+  const cardLogo = logoOpts.logoEnabled && logoOpts.logoPath ? logoOpts.logoPath : null;
+  const wantCard = Boolean(cardLogo) || Boolean(customCta);
+  const endCta = endCtaFor(job, brand);
+  let colors: string[] = [];
+  try {
+    const v = JSON.parse(brand?.colors || "[]");
+    if (Array.isArray(v)) colors = v.map(String);
+  } catch {
+    /* ignore */
+  }
+
   const group = master.shot_index; // carousel slide index (0 for a single clip)
+  // A retried fan-out (claim released after a mid-loop crash) must not duplicate
+  // deliverables that already landed — skip platforms with a completed row.
+  const { data: existing } = await supabase
+    .from("renders")
+    .select("platform")
+    .eq("job_id", job.id)
+    .eq("shot_index", group)
+    .eq("status", "completed")
+    .not("platform", "is", null);
+  const done = new Set((existing ?? []).map((e) => e.platform as string));
+
   for (const platform of platforms) {
+    if (done.has(platform.key)) continue;
     try {
       const out = join(dir, `${job.id}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`);
       await finishVideo(masterUrl, out, { platform, ...logoOpts });
-      const buf = await readFile(out);
+      // Append the CTA card at exact channel dimensions (crossfade). A card
+      // failure falls back to the plain clip — never lose the render.
+      let finalPath = out;
+      if (wantCard) {
+        const uid = randomUUID().slice(0, 6);
+        const cardPath = join(dir, `card-${job.id}-${platform.key}-${uid}.jpg`);
+        const withCard = join(dir, `${job.id}-${group}-${platform.key}-cta-${uid}.mp4`);
+        try {
+          const cardPng = await buildEndCardImage(platform.w, platform.h, {
+            logoUrl: cardLogo,
+            bgColor: colors[0],
+            cta: endCta.cta,
+            subtext: endCta.sub,
+          });
+          await writeFile(cardPath, cardPng);
+          await appendEndCard(out, cardPath, withCard, platform.w, platform.h);
+          finalPath = withCard;
+        } catch (e) {
+          console.error("[poll] end-card append failed:", e instanceof Error ? e.message : String(e));
+          await unlink(withCard).catch(() => {});
+        } finally {
+          await unlink(cardPath).catch(() => {});
+        }
+      }
+      const buf = await readFile(finalPath);
       const url = await uploadBuffer(`renders/${job.id}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
       await unlink(out).catch(() => {});
+      if (finalPath !== out) await unlink(finalPath).catch(() => {});
       await supabase.from("renders").insert({
         job_id: job.id, brief_id: master.brief_id, shot_index: group,
         source_asset_id: master.source_asset_id, platform: platform.key,

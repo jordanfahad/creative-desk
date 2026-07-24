@@ -594,6 +594,41 @@ export async function setJobMusic(formData: FormData): Promise<void> {
   revalidatePath(`/jobs/${id}`);
 }
 
+// Recompute a job's status from its remaining render rows (mirrors the poll
+// route's rollup; no rows → back to briefed/draft so the page reads sensibly).
+async function rollupJobStatus(jobId: number): Promise<void> {
+  const { data } = await supabase.from("renders").select("status, platform").eq("job_id", jobId);
+  const rows = (data as { status: string; platform: string | null }[]) ?? [];
+  // platform-null rows are internal video masters, not deliverables — a job with
+  // only a leftover completed master and zero deliverables is NOT "done".
+  const pending = rows.filter((r) => r.status === "queued" || r.status === "processing").length;
+  const doneDeliverables = rows.filter((r) => r.status === "completed" && r.platform).length;
+  const failed = rows.filter((r) => r.status === "failed").length;
+  let status: string;
+  if (pending > 0) status = "submitted";
+  else if (doneDeliverables > 0) status = "done";
+  else if (failed > 0) status = "failed";
+  else {
+    const { data: b } = await supabase.from("briefs").select("id").eq("job_id", jobId).limit(1).maybeSingle();
+    status = b ? "briefed" : "draft";
+  }
+  await supabase.from("jobs").update({ status, updated_at: now() }).eq("id", jobId);
+}
+
+/** Delete one deliverable: its storage file and its row, then re-roll the job. */
+export async function deleteRender(formData: FormData): Promise<void> {
+  const id = Number(formData.get("render_id"));
+  const jobId = Number(formData.get("job_id"));
+  if (!Number.isFinite(id) || !Number.isFinite(jobId)) return;
+  const { data: r } = await supabase.from("renders").select("id, job_id, result_url").eq("id", id).maybeSingle();
+  if (!r || r.job_id !== jobId) return;
+  await supabase.from("renders").delete().eq("id", id);
+  const k = pubKey(r.result_url);
+  if (k) await supabase.storage.from(BUCKET).remove([k]);
+  await rollupJobStatus(jobId);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
 export async function deleteJob(formData: FormData): Promise<void> {
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return;

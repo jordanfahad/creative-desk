@@ -15,6 +15,7 @@ import {
 import { parseBrief, type Brief } from "@/lib/context";
 import {
   deleteJob,
+  deleteRender,
   saveBriefEdit,
   uploadBriefDoc,
   removeBriefDoc,
@@ -30,6 +31,8 @@ import { PLATFORM_GROUPS, PLATFORMS, LOGO_POSITIONS, carouselCounts } from "@/li
 import { STYLE_PRESETS } from "@/lib/style";
 import JobActions from "./JobActions";
 import GoalPicker from "./GoalPicker";
+import ResultsActions from "./ResultsActions";
+import DeleteRenderButton from "./DeleteRenderButton";
 import { JobAssetUpload } from "@/components/JobAssetUpload";
 import { MusicPicker } from "@/components/MusicPicker";
 
@@ -304,7 +307,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                   : "e.g. calm reception shots that build trust"
             }
           />
-          {isMontage && (
+          {isVideoJob && job.video_mode !== "passthrough" && (
             <>
               <div className="grid cols-2" style={{ marginTop: 10 }}>
                 <div>
@@ -329,8 +332,8 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                 </div>
               </div>
               <p className="small muted" style={{ margin: "6px 0 0" }}>
-                Baked into the montage’s closing brand card. Leave blank for an automatic line
-                based on your goal. English text for now.
+                Baked into the video’s closing brand card (montages and AI clips). Works in
+                English and Arabic. Leave blank for an automatic line based on your goal.
               </p>
             </>
           )}
@@ -469,12 +472,17 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
       </div>
 
       {/* ── Results ── */}
-      <h2>
-        Results{" "}
-        {deliverables.length > 0 && (
-          <span className="small muted">· {deliverables.filter((r) => r.status === "completed").length} ready</span>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+        <h2>
+          Results{" "}
+          {deliverables.length > 0 && (
+            <span className="small muted">· {deliverables.filter((r) => r.status === "completed").length} ready</span>
+          )}
+        </h2>
+        {deliverables.length > 0 && pendingMasters.length === 0 && (
+          <ResultsActions jobId={job.id} media={job.media} />
         )}
-      </h2>
+      </div>
       {pendingMasters.length > 0 && (
         <p className="notice small">
           <span className="spinner" /> Rendering video… this can take a few minutes. The
@@ -506,16 +514,24 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                         ) : (
                           <img className="result-media" style={{ aspectRatio }} src={r.result_url} alt={r.platform ?? ""} />
                         )}
-                        <div className="row" style={{ marginTop: 8 }}>
+                        <div className="row" style={{ marginTop: 8, justifyContent: "space-between" }}>
                           <a className="btn secondary sm" href={r.result_url} download target="_blank" rel="noreferrer">
                             Download {plat ? `· ${plat.w}×${plat.h}` : ""}
                           </a>
+                          <DeleteRenderButton jobId={job.id} renderId={r.id} action={deleteRender} />
                         </div>
                       </>
                     ) : (
-                      <div className="result-media" style={{ aspectRatio, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 8 }}>
-                        <span className="small muted">{r.error ? r.error.slice(0, 120) : `${r.status}…`}</span>
-                      </div>
+                      <>
+                        <div className="result-media" style={{ aspectRatio, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 8 }}>
+                          <span className="small muted">{r.error ? r.error.slice(0, 120) : `${r.status}…`}</span>
+                        </div>
+                        {r.status === "failed" && (
+                          <div className="row" style={{ marginTop: 8, justifyContent: "flex-end" }}>
+                            <DeleteRenderButton jobId={job.id} renderId={r.id} action={deleteRender} />
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 );

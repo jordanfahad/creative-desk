@@ -6,8 +6,10 @@ import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import ffmpegStatic from "ffmpeg-static";
 import { parse as parseFont, type Font } from "opentype.js";
+import { ArabicShaper } from "arabic-persian-reshaper";
 import { loadLogoBuffer } from "./finish";
 import { FONT_SANS_BOLD_B64 } from "./fonts";
+import { FONT_ARABIC_B64 } from "./fontsArabic";
 
 // Photo-montage rendering: N still photos → one clean brand video. Each photo
 // is letterboxed WHOLE and held STATIC, with a smooth crossfade dissolve to the
@@ -248,6 +250,85 @@ function linePath(f: Font, text: string, baselineY: number, fontSize: number, fi
   return p.toSVG(2);
 }
 
+// ── Arabic support ───────────────────────────────────────────────────
+// Amiri Bold carries Arabic Presentation Forms glyphs, so text pre-shaped by
+// the reshaper renders as connected Naskh WITHOUT a GSUB shaping engine —
+// opentype.js's own Arabic engine crashes on Amiri's advanced tables, so we
+// bypass it entirely with per-glyph layout.
+let _arFont: Font | null = null;
+function arFont(): Font {
+  if (_arFont) return _arFont;
+  const b = Buffer.from(FONT_ARABIC_B64, "base64");
+  _arFont = parseFont(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+  return _arFont;
+}
+
+const AR_RE = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/;
+
+function shapeArabic(t: string): string {
+  try {
+    return ArabicShaper.convertArabic(t);
+  } catch {
+    return t; // unshaped beats crashed — Amiri still has the base glyphs
+  }
+}
+
+// Arabic LETTERS only (deliberately excludes Arabic-Indic digits U+0660-0669
+// and punctuation like ٪ — digits must stay in logical order inside RTL text).
+const AR_LETTER_SPAN = /[ؠ-ٟٮ-ۓۺ-ۿﭐ-﷿ﹰ-﻿]+|[^ؠ-ٟٮ-ۓۺ-ۿﭐ-﷿ﹰ-﻿]+/g;
+const AR_LETTER = /[ؠ-ٟٮ-ۓۺ-ۿﭐ-﷿ﹰ-﻿]/;
+
+/** Display order for one token: split into script spans; Arabic-letter spans are
+ *  shaped + reversed, digit/Latin spans keep their order; span order reverses.
+ *  So "خصم50%" reads خصم then 50% — never "05". */
+function prepToken(tok: string): string {
+  const spans = tok.match(AR_LETTER_SPAN) ?? [tok];
+  return spans
+    .map((s) => (AR_LETTER.test(s) ? [...shapeArabic(s)].reverse().join("") : s))
+    .reverse()
+    .join("");
+}
+
+/** Logical → display order for an Arabic-containing line (naive bidi: reverse
+ *  token order; Arabic tokens via prepToken; pure Latin/digit tokens stay LTR). */
+function prepLine(t: string): string {
+  if (!AR_RE.test(t)) return t;
+  return t
+    .split(/\s+/)
+    .map((tok) => (AR_RE.test(tok) ? prepToken(tok) : tok))
+    .reverse()
+    .join(" ");
+}
+
+/** Width of a (display-order) line — Arabic sums per-glyph advances. */
+function lineWidth(t: string, fontSize: number): number {
+  if (!AR_RE.test(t)) return endFont().getAdvanceWidth(t, fontSize);
+  const f = arFont();
+  const s = fontSize / f.unitsPerEm;
+  let w = 0;
+  for (const ch of t) w += (f.charToGlyph(ch).advanceWidth ?? 600) * s;
+  return w;
+}
+
+/** SVG paths for one centered (display-order) line, either script. */
+function centeredLine(t: string, baselineY: number, fontSize: number, fill: string): string {
+  if (!AR_RE.test(t)) return linePath(endFont(), t, baselineY, fontSize, fill);
+  const f = arFont();
+  const s = fontSize / f.unitsPerEm;
+  let x = (SRC - lineWidth(t, fontSize)) / 2;
+  const parts: string[] = [];
+  for (const ch of t) {
+    const g = f.charToGlyph(ch);
+    if (ch !== " ") {
+      const p = g.getPath(x, baselineY, fontSize);
+      p.fill = fill;
+      parts.push(p.toSVG(2));
+    }
+    x += (g.advanceWidth ?? 600) * s;
+  }
+  return parts.join("");
+}
+
 // Wrap text to at most `maxLines` lines of ≤ `perLine` chars (greedy by word).
 function wrapLines(text: string, perLine: number, maxLines: number): string[] {
   const words = text.trim().split(/\s+/);
@@ -302,35 +383,40 @@ async function buildEndCard(logoUrl: string | null, bgColor: string, cta?: strin
   const paths: string[] = [];
   let logoTop = Math.round((SRC - lh) / 2); // centered when there's no text
   if (hasText) {
-    const f = endFont();
     const maxW = Math.round(SRC * 0.88); // text must never run off the card
     // Ellipsize a line that can't fit even at the floored font size (e.g. one
-    // long unbroken wa.me link) — trimmed beats clipped.
+    // long unbroken wa.me link) — trimmed beats clipped. Display-order aware:
+    // Arabic lines trim from the front (their visual tail) and prefix the "…".
     const fit = (ln: string, size: number): string => {
-      if (f.getAdvanceWidth(ln, size) <= maxW) return ln;
+      if (lineWidth(ln, size) <= maxW) return ln;
+      const rtl = AR_RE.test(ln);
       let t = ln;
-      while (t.length > 1 && f.getAdvanceWidth(t + "…", size) > maxW) t = t.slice(0, -1);
-      return t + "…";
+      while (t.length > 1 && lineWidth(rtl ? "…" + t : t + "…", size) > maxW) {
+        t = rtl ? t.slice(1) : t.slice(0, -1);
+      }
+      return rtl ? "…" + t : t + "…";
     };
-    const lines = wrapLines(cta!.trim(), 17, 2);
+    // Wrap on logical text, then convert each line to display order (Arabic
+    // lines are reshaped to presentation forms + reversed).
+    const lines = wrapLines(cta!.trim(), 17, 2).map(prepLine);
     let fs = lines.length > 1 ? 200 : 236;
     // Fit-to-width: a long CTA (offers, phone numbers) shrinks instead of clipping.
-    const widest = Math.max(...lines.map((ln) => f.getAdvanceWidth(ln, fs)));
+    const widest = Math.max(...lines.map((ln) => lineWidth(ln, fs)));
     if (widest > maxW) fs = Math.max(96, Math.floor((fs * maxW) / widest));
     const fitted = lines.map((ln) => fit(ln, fs));
     const lineH = Math.round(fs * 1.14);
     const baseline = Math.round(SRC * 0.3) + fs; // first line's baseline
-    fitted.forEach((ln, i) => paths.push(linePath(f, ln, baseline + i * lineH, fs, "#ffffff")));
+    fitted.forEach((ln, i) => paths.push(centeredLine(ln, baseline + i * lineH, fs, "#ffffff")));
     let y = baseline + (fitted.length - 1) * lineH;
     if (subtext && subtext.trim()) {
-      const sub = wrapLines(subtext.trim(), 34, 2);
+      const sub = wrapLines(subtext.trim(), 34, 2).map(prepLine);
       let sfs = 92;
-      const subWidest = Math.max(...sub.map((ln) => f.getAdvanceWidth(ln, sfs)));
+      const subWidest = Math.max(...sub.map((ln) => lineWidth(ln, sfs)));
       if (subWidest > maxW) sfs = Math.max(52, Math.floor((sfs * maxW) / subWidest));
       const fittedSub = sub.map((ln) => fit(ln, sfs));
       const slh = Math.round(sfs * 1.18);
       y += Math.round(fs * 0.95);
-      fittedSub.forEach((ln, i) => paths.push(linePath(f, ln, y + i * slh, sfs, "#cfe2d0")));
+      fittedSub.forEach((ln, i) => paths.push(centeredLine(ln, y + i * slh, sfs, "#cfe2d0")));
       y += (fittedSub.length - 1) * slh;
     }
     logoTop = y + Math.round(SRC * 0.14);
@@ -359,6 +445,86 @@ async function buildEndCard(logoUrl: string | null, bgColor: string, cta?: strin
   )
     .jpeg({ quality: 92 })
     .toBuffer();
+}
+
+/** Resolve the closing-card CTA for a job: custom text wins, else goal-aware default. */
+export function endCtaFor(
+  job: { funnel_goal: string | null; cta_text: string | null; cta_subtext: string | null },
+  brand: { tagline: string | null; clinic_name: string | null } | undefined,
+): { cta: string; sub: string } {
+  const map: Record<string, { cta: string; sub: string }> = {
+    conversion: { cta: "Book your visit today", sub: brand?.tagline ?? "" },
+    consideration: { cta: "See what’s possible", sub: brand?.tagline ?? "" },
+    awareness: { cta: brand?.tagline || brand?.clinic_name || "Beyond Smiles", sub: "" },
+  };
+  const goal = (job.funnel_goal && map[job.funnel_goal]) || { cta: "Book your visit today", sub: brand?.tagline ?? "" };
+  const custom = (job.cta_text ?? "").trim();
+  const customSub = (job.cta_subtext ?? "").trim();
+  return {
+    cta: custom || goal.cta,
+    sub: customSub || (custom ? brand?.tagline ?? "" : goal.sub),
+  };
+}
+
+/**
+ * Closing card at EXACT target dimensions (for appending to per-channel clips).
+ * The square card is contain-fitted and padded with its own background color,
+ * so non-square targets read as natively composed — text is never cropped.
+ */
+export async function buildEndCardImage(
+  w: number,
+  h: number,
+  opts: { logoUrl?: string | null; bgColor?: string; cta?: string; subtext?: string },
+): Promise<Buffer> {
+  const bg = /^#[0-9a-fA-F]{3,8}$/.test(opts.bgColor ?? "") ? (opts.bgColor as string) : "#1F3A5F";
+  const square = await buildEndCard(opts.logoUrl ?? null, bg, opts.cta, opts.subtext);
+  return sharp(square).resize(w, h, { fit: "contain", background: bg }).jpeg({ quality: 92 }).toBuffer();
+}
+
+/** Duration (seconds) of a video file, parsed from ffmpeg's banner. */
+export function videoDuration(path: string): Promise<number> {
+  return new Promise((res, rej) => {
+    if (!FFMPEG) return rej(new Error("ffmpeg binary not found (ffmpeg-static)"));
+    const proc = spawn(FFMPEG, ["-i", path]);
+    let err = "";
+    proc.stderr.on("data", (d) => (err += d.toString()));
+    proc.on("error", rej);
+    proc.on("close", () => {
+      const m = err.match(/Duration: (\d+):(\d+):([\d.]+)/);
+      if (!m) return rej(new Error("could not read video duration"));
+      res(Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]));
+    });
+  });
+}
+
+/**
+ * Append a closing card (still image) to a finished clip with a short
+ * crossfade. Video-only output (Kling clips are silent; the card adds no audio).
+ */
+export async function appendEndCard(
+  inputPath: string,
+  cardPath: string,
+  outputPath: string,
+  w: number,
+  h: number,
+  holdSeconds = 2.8,
+): Promise<void> {
+  const dur = await videoDuration(inputPath);
+  const T = 0.5; // crossfade
+  const off = Math.max(0.1, dur - T);
+  await runFfmpeg([
+    "-y",
+    "-i", inputPath,
+    "-loop", "1", "-t", (holdSeconds + T).toFixed(2), "-i", cardPath,
+    "-filter_complex",
+    `[0:v]scale=${w}:${h},setsar=1,fps=${FPS},format=yuv420p[a];[1:v]scale=${w}:${h},setsar=1,fps=${FPS},format=yuv420p[b];[a][b]xfade=transition=fade:duration=${T}:offset=${off.toFixed(3)}[v]`,
+    "-map", "[v]",
+    "-t", (off + T + holdSeconds).toFixed(2),
+    "-an",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    outputPath,
+  ]);
 }
 
 function runFfmpeg(args: string[]): Promise<void> {
