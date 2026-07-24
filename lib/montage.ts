@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import ffmpegStatic from "ffmpeg-static";
+import opentype from "opentype.js";
 import { loadLogoBuffer } from "./finish";
 import { FONT_SANS_BOLD_B64 } from "./fonts";
 
@@ -229,7 +230,23 @@ async function fetchImage(url: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
-const xmlEsc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Text is drawn as VECTOR PATHS (opentype.js) so it renders identically on
+// Vercel — librsvg there ignores @font-face data-URIs, so any font-based SVG
+// text comes out as tofu. Paths need no font at render time.
+let _endFont: opentype.Font | null = null;
+function endFont(): opentype.Font {
+  if (_endFont) return _endFont;
+  const b = Buffer.from(FONT_SANS_BOLD_B64, "base64");
+  _endFont = opentype.parse(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+  return _endFont;
+}
+/** SVG <path> for one centered line, baseline at `baselineY`. */
+function linePath(f: opentype.Font, text: string, baselineY: number, fontSize: number, fill: string): string {
+  const w = f.getAdvanceWidth(text, fontSize);
+  const p = f.getPath(text, (SRC - w) / 2, baselineY, fontSize);
+  p.fill = fill;
+  return p.toSVG(2);
+}
 
 // Wrap text to at most `maxLines` lines of ≤ `perLine` chars (greedy by word).
 function wrapLines(text: string, perLine: number, maxLines: number): string[] {
@@ -255,48 +272,39 @@ function wrapLines(text: string, perLine: number, maxLines: number): string[] {
 /**
  * Compose the closing card: a brand-color field with a CALL-TO-ACTION headline
  * (+ optional subtext) above the logo — the ad's payoff, not dead air. Text is
- * drawn with an embedded font so it renders identically on Vercel.
+ * vectorized so it renders on Vercel regardless of installed fonts.
  */
 async function buildEndCard(logoUrl: string, bgColor: string, cta?: string, subtext?: string): Promise<Buffer> {
   const logo = await loadLogoBuffer(logoUrl);
   const hasText = !!(cta && cta.trim());
-  const logoW = Math.round(SRC * (hasText ? 0.34 : 0.42));
+  const logoW = Math.round(SRC * (hasText ? 0.32 : 0.42));
   const scaled = await sharp(logo).resize({ width: logoW }).png().toBuffer();
   const meta = await sharp(scaled).metadata();
   const lw = meta.width ?? logoW;
   const lh = meta.height ?? Math.round(logoW * 0.4);
 
-  const parts: string[] = [`<rect width="100%" height="100%" fill="${bgColor}"/>`];
+  const paths: string[] = [];
   let logoTop = Math.round((SRC - lh) / 2); // centered when there's no text
   if (hasText) {
+    const f = endFont();
     const lines = wrapLines(cta!.trim(), 17, 2);
-    const fs = lines.length > 1 ? 200 : 232;
-    const lineH = Math.round(fs * 1.08);
-    const blockTop = Math.round(SRC * 0.3);
-    const tspans = lines
-      .map((ln, i) => `<tspan x="50%" dy="${i === 0 ? 0 : lineH}">${xmlEsc(ln)}</tspan>`)
-      .join("");
-    parts.push(
-      `<text x="50%" y="${blockTop}" text-anchor="middle" font-family="CDSans" font-weight="700" font-size="${fs}" fill="#ffffff">${tspans}</text>`,
-    );
-    let y = blockTop + (lines.length - 1) * lineH;
+    const fs = lines.length > 1 ? 200 : 236;
+    const lineH = Math.round(fs * 1.14);
+    let baseline = Math.round(SRC * 0.3) + fs; // first line's baseline
+    lines.forEach((ln, i) => paths.push(linePath(f, ln, baseline + i * lineH, fs, "#ffffff")));
+    let y = baseline + (lines.length - 1) * lineH;
     if (subtext && subtext.trim()) {
       const sub = wrapLines(subtext.trim(), 34, 2);
       const sfs = 92;
-      const slh = Math.round(sfs * 1.12);
-      const subTspans = sub
-        .map((ln, i) => `<tspan x="50%" dy="${i === 0 ? 0 : slh}">${xmlEsc(ln)}</tspan>`)
-        .join("");
-      y += Math.round(fs * 0.9);
-      parts.push(
-        `<text x="50%" y="${y}" text-anchor="middle" font-family="CDSans" font-weight="700" font-size="${sfs}" fill="#cfe2d0">${subTspans}</text>`,
-      );
+      const slh = Math.round(sfs * 1.18);
+      y += Math.round(fs * 0.95);
+      sub.forEach((ln, i) => paths.push(linePath(f, ln, y + i * slh, sfs, "#cfe2d0")));
       y += (sub.length - 1) * slh;
     }
-    logoTop = Math.min(y + Math.round(SRC * 0.14), SRC - lh - Math.round(SRC * 0.06));
+    logoTop = Math.min(y + Math.round(SRC * 0.16), SRC - lh - Math.round(SRC * 0.06));
   }
 
-  const svg = `<svg width="${SRC}" height="${SRC}" xmlns="http://www.w3.org/2000/svg"><defs><style>@font-face{font-family:'CDSans';src:url(data:font/ttf;base64,${FONT_SANS_BOLD_B64}) format('truetype');}</style></defs>${parts.join("")}</svg>`;
+  const svg = `<svg width="${SRC}" height="${SRC}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="${bgColor}"/>${paths.join("")}</svg>`;
 
   return sharp(Buffer.from(svg))
     .composite([{ input: scaled, left: Math.round((SRC - lw) / 2), top: logoTop }])
