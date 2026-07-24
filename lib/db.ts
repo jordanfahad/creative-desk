@@ -223,6 +223,13 @@ export function jobInspirationIds(job: Pick<Job, "inspiration_ids">): number[] {
   return [];
 }
 
+// A job renders as a photo montage (many photos → ONE Ken-Burns video) only
+// when it's a single-output video montage. Choosing a carousel (2+ slides) means
+// separate items, so it is NOT a montage — it routes to the multi-clip path.
+export function isMontageJob(job: Pick<Job, "media" | "video_mode" | "carousel_count">): boolean {
+  return job.media === "video" && job.video_mode === "montage" && (job.carousel_count ?? 1) < 2;
+}
+
 export function jobPlatformKeys(job: Job): string[] {
   try {
     const v = JSON.parse(job.platforms || "[]");

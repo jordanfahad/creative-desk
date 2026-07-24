@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import sharp from "sharp";
-import { supabase, getJob } from "@/lib/db";
+import { supabase, getJob, isMontageJob } from "@/lib/db";
 import { assembleContext, briefSystemPrompt, BriefSchema, type Brief } from "@/lib/context";
 
 export const runtime = "nodejs";
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { block, assets, inspiration } = await assembleContext(job);
-  if (job.media === "video" && job.video_mode === "montage" && !assets.some((a) => a.media !== "video")) {
+  if (isMontageJob(job) && !assets.some((a) => a.media !== "video")) {
     return NextResponse.json(
       { error: "Upload the montage photos first — the AI curates from what you upload." },
       { status: 400 },
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
   // Attach the actual images so the model SEES what it's writing prompts for:
   // the user's source photos first, then the inspiration references, in order.
   // Montage jobs are CURATION jobs — the model must see the whole set.
-  const isMontage = job.media === "video" && job.video_mode === "montage";
+  const isMontage = isMontageJob(job);
   const sourceImages = assets.filter((a) => a.media !== "video").slice(0, isMontage ? 12 : 4);
 
   const directorBrief = (job.brief_doc_text ?? "").trim();

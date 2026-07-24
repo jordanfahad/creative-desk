@@ -13,6 +13,7 @@ import {
   listRenders,
   jobPlatformKeys,
   jobInspirationIds,
+  isMontageJob,
 } from "@/lib/db";
 import { uploadBuffer, publicUrl } from "@/lib/storage";
 import { parseBrief, type Brief } from "@/lib/context";
@@ -236,7 +237,7 @@ export async function POST(req: NextRequest) {
       }
     } else {
       // ───────────── VIDEO ─────────────
-      if (job.video_mode === "montage") {
+      if (isMontageJob(job)) {
         // Photo montage: real photos → Ken Burns master (no AI render credits),
         // then the standard per-channel crop + logo. Curation comes from the
         // brief when present (selection/order/hold/motion); otherwise every

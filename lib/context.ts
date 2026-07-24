@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getBrandKit, listGuidelines, getAssetsByIds, jobInspirationIds, type Asset, type Job } from "./db";
+import { getBrandKit, listGuidelines, getAssetsByIds, jobInspirationIds, isMontageJob, type Asset, type Job } from "./db";
 import { styleGuidance, styleLabel, BASE_NEGATIVE } from "./style";
 import { clampCarousel } from "./platform";
 
@@ -90,10 +90,7 @@ export async function assembleContext(job: Job): Promise<AssembledContext> {
   }
 
   // Montage curation may only pick PHOTOS — don't offer video-asset ids.
-  const listable =
-    job.media === "video" && job.video_mode === "montage"
-      ? assets.filter((a) => a.media !== "video")
-      : assets;
+  const listable = isMontageJob(job) ? assets.filter((a) => a.media !== "video") : assets;
   if (listable.length) {
     lines.push("");
     lines.push("# Source assets selected for this job");
@@ -230,7 +227,7 @@ export function briefSystemPrompt(
 ): string {
   const isOptimize = job.intent === "optimize";
   const isVideo = job.media === "video";
-  const isMontage = isVideo && job.video_mode === "montage";
+  const isMontage = isMontageJob(job);
   const goal = job.funnel_goal ? FUNNEL_GOAL_GUIDANCE[job.funnel_goal] : undefined;
   const renderer = isMontage
     ? "a deterministic pan/zoom montage engine (uses the real photos as-is)"
