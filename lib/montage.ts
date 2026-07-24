@@ -356,8 +356,9 @@ export async function buildMontageMaster(shots: MontageShot[], opts: MontageOpts
         const p = join(dir, `src-end.jpg`);
         await writeFile(p, card);
         frames.push({ path: p, holdSeconds: opts.endCard.holdSeconds ?? 3.0, motion: "zoom-in" });
-      } catch {
-        // no end-card is better than no video
+      } catch (e) {
+        // no end-card is better than no video — but surface why it failed
+        console.error("[montage] end-card failed:", e instanceof Error ? (e.stack ?? e.message) : String(e));
       }
     }
 
