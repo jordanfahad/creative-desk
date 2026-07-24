@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { supabase, getJob, getBrandKit, getLogo, jobPlatformKeys, type Render } from "@/lib/db";
-import { uploadBuffer } from "@/lib/storage";
+import { uploadBuffer, publicUrl } from "@/lib/storage";
 import { videoStatus, videoResultUrl } from "@/lib/fal";
 import { finishVideo } from "@/lib/finishVideo";
-import { buildEndCardImage, appendEndCard, endCtaFor } from "@/lib/montage";
+import { buildEndCardImage, appendEndCard, endCtaFor, muxMusicIntoVideo } from "@/lib/montage";
 import { platformOf, type LogoPosition } from "@/lib/platform";
 
 export const runtime = "nodejs";
@@ -130,6 +130,9 @@ async function fanOutVideo(master: Render, masterUrl: string) {
   const cardLogo = logoOpts.logoEnabled && logoOpts.logoPath ? logoOpts.logoPath : null;
   const wantCard = Boolean(cardLogo) || Boolean(customCta);
   const endCta = endCtaFor(job, brand);
+  // Soundtrack applies to AI clips too — preset key, or the uploaded track's URL.
+  const musicRaw = (job.music_track ?? "").trim();
+  const musicChoice = musicRaw ? (musicRaw.startsWith("assets/") ? publicUrl(musicRaw) : musicRaw) : null;
   let colors: string[] = [];
   try {
     const v = JSON.parse(brand?.colors || "[]");
@@ -177,6 +180,19 @@ async function fanOutVideo(master: Render, masterUrl: string) {
           await unlink(withCard).catch(() => {});
         } finally {
           await unlink(cardPath).catch(() => {});
+        }
+      }
+      // Bake the soundtrack in (video stream copied — cheap). Failure keeps the
+      // silent clip rather than losing the render.
+      if (musicChoice) {
+        const withMusic = join(dir, `${job.id}-${group}-${platform.key}-mus-${randomUUID().slice(0, 6)}.mp4`);
+        try {
+          await muxMusicIntoVideo(finalPath, withMusic, musicChoice);
+          if (finalPath !== out) await unlink(finalPath).catch(() => {});
+          finalPath = withMusic;
+        } catch (e) {
+          console.error("[poll] music mux failed:", e instanceof Error ? e.message : String(e));
+          await unlink(withMusic).catch(() => {});
         }
       }
       const buf = await readFile(finalPath);

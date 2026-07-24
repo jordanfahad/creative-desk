@@ -584,7 +584,7 @@ export async function setJobGoal(formData: FormData): Promise<void> {
   revalidatePath(`/jobs/${id}`);
 }
 
-const MUSIC_PRESET_KEYS = new Set(["calm", "warm", "uplift"]);
+const MUSIC_PRESET_KEYS = new Set(["calm", "warm", "uplift", "upbeat"]);
 export async function setJobMusic(formData: FormData): Promise<void> {
   const id = Number(formData.get("job_id"));
   if (!Number.isFinite(id)) return;

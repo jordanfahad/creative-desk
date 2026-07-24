@@ -5,16 +5,20 @@ import { useRouter } from "next/navigation";
 import { setJobMusic } from "@/lib/actions";
 
 /**
- * Montage soundtrack picker. Paid ads can't use the platform's in-app music, so
- * audio has to be baked into the file. Two options: a built-in ambient bed
- * (calm / warm / uplift), synthesized in the renderer (royalty-free); or the
- * user's own track, uploaded straight to storage (same signed-URL path as
- * photos). Whatever is chosen is looped/trimmed to length with a fade.
+ * Video soundtrack picker — applies to EVERY video type (baked into montage
+ * masters, muxed into AI clips, optional on enhanced uploads). Paid ads can't
+ * use the platform's in-app music, so audio has to be in the file. Options: a
+ * built-in bed (calm / warm / uplift / upbeat), synthesized in the renderer
+ * (royalty-free by construction); or the user's own licensed track, uploaded
+ * straight to storage. Whatever is chosen is looped/trimmed to length with a
+ * fade. For truly premium output, an uploaded licensed track beats the
+ * synthesized beds.
  */
 const PRESETS = [
   { key: "warm", label: "Warm (calm major pad)" },
   { key: "calm", label: "Calm (soft, still)" },
   { key: "uplift", label: "Uplift (brighter)" },
+  { key: "upbeat", label: "Upbeat (energetic — conversion ads)" },
 ];
 
 export function MusicPicker({ jobId, current }: { jobId: number; current: string }) {
@@ -76,9 +80,10 @@ export function MusicPicker({ jobId, current }: { jobId: number; current: string
   return (
     <div style={{ marginTop: 18, borderTop: "1px solid var(--line, #e5e7eb)", paddingTop: 14 }}>
       <p className="small muted" style={{ marginTop: 0 }}>
-        <strong>Soundtrack.</strong> Baked into the export — needed for paid ads (they can’t use the
-        app’s in-app music). Pick a built-in bed or upload your own track; it’s fit to the video with
-        a gentle fade. Leave on “No music” to export silent and add trending audio in-app for organic
+        <strong>Soundtrack.</strong> Baked into every video export (montage or AI clip) — needed for
+        paid ads, which can’t use the platform’s in-app music. Pick a built-in bed or, for the most
+        premium result, <strong>upload your own licensed track</strong>; it’s fit to the video with a
+        gentle fade. Leave on “No music” to export silent and add trending audio in-app for organic
         posts.
       </p>
       <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>

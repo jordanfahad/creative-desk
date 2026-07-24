@@ -242,7 +242,8 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                   <JobAssetUpload jobId={job.id} accept="video/*" buttonLabel="+ Add video" />
                 </div>
               )}
-                            {isMontage && <MusicPicker jobId={job.id} current={job.music_track ?? ""} />}
+              {/* Soundtrack applies to EVERY video type — never hidden behind a mode. */}
+              <MusicPicker jobId={job.id} current={job.music_track ?? ""} />
 
               <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
                 Mode:{" "}

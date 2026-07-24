@@ -20,7 +20,7 @@ import { parseBrief, type Brief } from "@/lib/context";
 import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
-import { buildMontageMaster, normalizeMotion, endCtaFor, type MontageShot } from "@/lib/montage";
+import { buildMontageMaster, normalizeMotion, endCtaFor, muxMusicIntoVideo, type MontageShot } from "@/lib/montage";
 import { platformOf, clampCarousel, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
 import { BASE_NEGATIVE } from "@/lib/style";
 
@@ -323,10 +323,13 @@ export async function POST(req: NextRequest) {
         if (!videoAssets.length) {
           return NextResponse.json({ error: "Upload a video to optimize." }, { status: 400 });
         }
+        // Enhanced uploads keep their original audio unless a soundtrack was chosen.
+        const ptMusicRaw = (job.music_track ?? "").trim();
+        const ptMusic = ptMusicRaw ? (ptMusicRaw.startsWith("assets/") ? publicUrl(ptMusicRaw) : ptMusicRaw) : null;
         for (let i = 0; i < videoAssets.length; i++) {
           for (const platform of platforms) {
             try {
-              const url = await finishVideoToStorage(videoAssets[i].local_path, jobId, i, platform, logoOpts);
+              const url = await finishVideoToStorage(videoAssets[i].local_path, jobId, i, platform, logoOpts, ptMusic);
               await insertRender({ group: i, sourceAssetId: videoAssets[i].id, platform: platform.key, status: "completed", result_url: url, meta: { mode: "passthrough" } });
               results.push({ group: i, platform: platform.key, status: "completed" });
             } catch (e) {
@@ -399,15 +402,29 @@ async function finishVideoToStorage(
     logoEnableBefore?: number;
     letterbox?: boolean;
   },
+  music?: string | null,
 ): Promise<string> {
   const dir = join(tmpdir(), "creative-desk");
   await mkdir(dir, { recursive: true });
   const out = join(dir, `${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`);
+  const withMusic = join(dir, `${jobId}-${group}-${platform.key}-mus-${randomUUID().slice(0, 6)}.mp4`);
   try {
     await finishVideo(inputUrl, out, { platform, ...logoOpts });
-    const buf = await readFile(out);
+    let finalPath = out;
+    if (music) {
+      // Replace the original audio with the chosen soundtrack; a mux failure
+      // keeps the original-audio clip rather than losing the render.
+      try {
+        await muxMusicIntoVideo(out, withMusic, music);
+        finalPath = withMusic;
+      } catch (e) {
+        console.error("[submit] music mux failed:", e instanceof Error ? e.message : String(e));
+      }
+    }
+    const buf = await readFile(finalPath);
     return await uploadBuffer(`renders/${jobId}-${group}-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
   } finally {
     await unlink(out).catch(() => {});
+    await unlink(withMusic).catch(() => {});
   }
 }

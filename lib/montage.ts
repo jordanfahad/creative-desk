@@ -329,6 +329,18 @@ function centeredLine(t: string, baselineY: number, fontSize: number, fill: stri
   return parts.join("");
 }
 
+/** Lighten (f>1) or darken (f<1) a #rgb/#rrggbb hex color. */
+function shadeHex(hex: string, f: number): string {
+  const m = hex.replace("#", "");
+  const full = m.length === 3 ? m.split("").map((c) => c + c).join("") : m.slice(0, 6);
+  const n = parseInt(full, 16);
+  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(v * f)));
+  const r = ch((n >> 16) & 255);
+  const g = ch((n >> 8) & 255);
+  const b = ch(n & 255);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
 // Wrap text to at most `maxLines` lines of ≤ `perLine` chars (greedy by word).
 function wrapLines(text: string, perLine: number, maxLines: number): string[] {
   const words = text.trim().split(/\s+/);
@@ -436,7 +448,19 @@ async function buildEndCard(logoUrl: string | null, bgColor: string, cta?: strin
     }
   }
 
-  const svg = `<svg width="${SRC}" height="${SRC}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="${safeBg}"/>${paths.join("")}</svg>`;
+  // Design: a soft radial brand gradient (not a flat field) + the mint smile-arc
+  // motif from the brand mark above the headline. Subtle, premium, on-brand.
+  const bgTop = shadeHex(safeBg, 1.22);
+  const bgBottom = shadeHex(safeBg, 0.78);
+  const defs = `<defs><radialGradient id="bg" cx="50%" cy="34%" r="95%"><stop offset="0%" stop-color="${bgTop}"/><stop offset="100%" stop-color="${bgBottom}"/></radialGradient></defs>`;
+  let motif = "";
+  if (hasText) {
+    const arcW = Math.round(SRC * 0.07);
+    const arcY = Math.round(SRC * 0.222);
+    const cx = SRC / 2;
+    motif = `<path d="M ${cx - arcW} ${arcY} Q ${cx} ${arcY + Math.round(arcW * 1.1)} ${cx + arcW} ${arcY}" stroke="#cfe2d0" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.92"/>`;
+  }
+  const svg = `<svg width="${SRC}" height="${SRC}" xmlns="http://www.w3.org/2000/svg">${defs}<rect width="100%" height="100%" fill="url(#bg)"/>${motif}${paths.join("")}</svg>`;
 
   const base = sharp(Buffer.from(svg));
   return (scaled
@@ -525,6 +549,31 @@ export async function appendEndCard(
     "-movflags", "+faststart",
     outputPath,
   ]);
+}
+
+/**
+ * Mux a soundtrack (preset key or uploaded-track URL) into a finished video,
+ * fitted to its exact length with fades. Video stream is copied (no re-encode).
+ */
+export async function muxMusicIntoVideo(videoPath: string, outputPath: string, choice: string): Promise<void> {
+  const dir = join(tmpdir(), `cd-music-${randomUUID().slice(0, 8)}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const seconds = await videoDuration(videoPath);
+    const audio = await prepareMusicTrack(dir, choice, seconds);
+    if (!audio) throw new Error("music track could not be prepared");
+    await runFfmpeg([
+      "-y",
+      "-i", videoPath,
+      "-i", audio,
+      "-map", "0:v", "-map", "1:a",
+      "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+      "-shortest", "-movflags", "+faststart",
+      outputPath,
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 function runFfmpeg(args: string[]): Promise<void> {
