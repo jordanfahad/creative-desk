@@ -275,13 +275,20 @@ export async function POST(req: NextRequest) {
           running += hold;
           return true;
         });
-        const END_CARD_SECONDS = 2.2;
+        const END_CARD_SECONDS = 3.0;
         const withEndCard = Boolean(logoOpts.logoEnabled && logoOpts.logoPath);
         const photoSeconds = running;
-                const master = await buildMontageMaster(plan, {
+        // Goal-aware call-to-action baked into the closing card (the ad's payoff).
+        const CTA: Record<string, { cta: string; sub: string }> = {
+          conversion: { cta: "Book your visit today", sub: brand?.tagline ?? "" },
+          consideration: { cta: "See what’s possible", sub: brand?.tagline ?? "" },
+          awareness: { cta: brand?.tagline || brand?.clinic_name || "Beyond Smiles", sub: "" },
+        };
+        const endCta = (job.funnel_goal && CTA[job.funnel_goal]) || { cta: "Book your visit today", sub: brand?.tagline ?? "" };
+        const master = await buildMontageMaster(plan, {
           music: (job.music_track ?? "").trim() ? ((job.music_track as string).trim().startsWith("assets/") ? publicUrl((job.music_track as string).trim()) : (job.music_track as string).trim()) : null,
           endCard: withEndCard
-            ? { logoUrl: logoOpts.logoPath as string, bgColor: colors[0] || "#1F3A5F", holdSeconds: END_CARD_SECONDS }
+            ? { logoUrl: logoOpts.logoPath as string, bgColor: colors[0] || "#1F3A5F", holdSeconds: END_CARD_SECONDS, cta: endCta.cta, subtext: endCta.sub }
             : null,
         });
         // write the master once, then finish per channel (crop + corner logo)
