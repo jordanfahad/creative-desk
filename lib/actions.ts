@@ -634,6 +634,22 @@ export async function deleteProject(formData: FormData): Promise<void> {
   redirect("/projects");
 }
 
+// Auto-save the video mode on its own (a controlled client picker) so it can't
+// be reset by a re-render and the mode's controls appear immediately — no
+// separate "Save channels & output" step needed just to switch modes. Reconciles
+// carousel_count with the new mode (montage = single output; reel = 3–6 shots).
+export async function setJobVideoMode(formData: FormData): Promise<void> {
+  const id = Number(formData.get("job_id"));
+  if (!Number.isFinite(id)) return;
+  const vm = (formData.get("video_mode") ?? "").toString();
+  if (!VIDEO_MODES.has(vm)) return;
+  const { data: job } = await supabase.from("jobs").select("carousel_count").eq("id", id).maybeSingle();
+  const cc = clampCarousel(job?.carousel_count);
+  const carousel_count = vm === "montage" ? 1 : vm === "reel" ? reelShotCount({ carousel_count: cc }) : cc;
+  await supabase.from("jobs").update({ video_mode: vm, carousel_count, updated_at: now() }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+}
+
 export async function setProduction(formData: FormData): Promise<void> {
   const id = Number(formData.get("id"));
   if (!Number.isFinite(id)) return;

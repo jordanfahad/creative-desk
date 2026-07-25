@@ -40,6 +40,7 @@ import { JobAssetUpload } from "@/components/JobAssetUpload";
 import { MusicPicker } from "@/components/MusicPicker";
 import { VoicePicker } from "@/components/VoicePicker";
 import { CharacterPicker } from "@/components/CharacterPicker";
+import { ModePicker } from "@/components/ModePicker";
 
 export const dynamic = "force-dynamic";
 
@@ -480,15 +481,12 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
               </label>
             )}
             {isVideoJob && (
-              <div className="row" style={{ gap: 6 }}>
-                <span className="small muted">video</span>
-                <select name="video_mode" defaultValue={job.video_mode} style={{ width: "auto" }}>
-                  {isOptimize && <option value="passthrough">size + brand only (no AI)</option>}
-                  <option value="animate">animate / generate (AI)</option>
-                  {!isOptimize && <option value="reel">cinematic reel — AI clips + captions + voiceover</option>}
-                  <option value="montage">photo montage — images → video (no AI credits)</option>
-                </select>
-              </div>
+              <>
+                {/* Auto-saves on change (immediately shows that mode's controls).
+                    The hidden input keeps the mode intact when this form is saved. */}
+                <input type="hidden" name="video_mode" value={job.video_mode} />
+                <ModePicker jobId={job.id} current={job.video_mode} isOptimize={isOptimize} />
+              </>
             )}
           </div>
           <button className="btn secondary sm" type="submit" style={{ marginTop: 12 }}>
