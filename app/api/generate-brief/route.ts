@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import sharp from "sharp";
-import { supabase, getJob, isMontageJob } from "@/lib/db";
+import { supabase, getJob, isMontageJob, isReelJob } from "@/lib/db";
 import { assembleContext, briefSystemPrompt, BriefSchema, type Brief } from "@/lib/context";
+import { reelShotCount } from "@/lib/platform";
 
 export const runtime = "nodejs";
 
@@ -163,6 +164,34 @@ export async function POST(req: NextRequest) {
       );
     }
     brief = parsed;
+
+    // Reel safety net: a reel needs one shot PER BEAT. If the model collapsed it
+    // (e.g. a "5-second clip" direction), retry ONCE with an explicit correction —
+    // rendering N clones of one prompt yields N different random faces, not a reel.
+    if (isReelJob(job)) {
+      const want = reelShotCount(job);
+      if (brief.shots.length < want) {
+        try {
+          const retry = await client.beta.chat.completions.parse({
+            model: MODEL,
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: userContent },
+              { role: "assistant", content: JSON.stringify(brief) },
+              {
+                role: "user",
+                content: `You returned only ${brief.shots.length} shot(s). A cinematic reel needs EXACTLY ${want} distinct sequential beats featuring the SAME hero in varied framings. Return the brief again with exactly ${want} shots.`,
+              },
+            ],
+            response_format: zodResponseFormat(BriefSchema, "creative_brief"),
+          });
+          const rp = retry.choices[0]?.message.parsed;
+          if (rp && rp.shots.length > brief.shots.length) brief = rp;
+        } catch {
+          /* keep the first brief if the corrective retry fails */
+        }
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: `OpenAI request failed: ${message}` }, { status: 502 });

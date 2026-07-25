@@ -338,6 +338,7 @@ export function briefSystemPrompt(
     isReel
       ? [
           "# CINEMATIC REEL SHOTS",
+          `⛔ YOU MUST RETURN EXACTLY ${reelShotCount(job)} SHOTS — one per beat. Returning fewer is a FAILURE. Even if the direction describes "a clip" / "a 5-second clip" / a single moment, EXPAND it into ${reelShotCount(job)} distinct sequential beats (different framings/moments of the same story). Never collapse the reel to one shot.`,
           "Each shot is ONE 5s Kling clip; the shots are CONCATENATED into a single reel. A brand CTA end-card is appended automatically — do NOT create a shot for it.",
           "",
           "## HARD RULE — NO LOGOS OR TEXT IN THE FRAME (this is the #1 quality killer)",
