@@ -353,7 +353,15 @@ export async function POST(req: NextRequest) {
           );
         }
         const shots = brief.shots;
-        const n = reelShotCount(job);
+        // Real-photo reel (BEST path): the user uploaded real doctor/clinic
+        // photos → animate THOSE (one beat per photo, subject preserved). Else
+        // generate the scenes. reelShotCount bounds the generated case; the
+        // photo case is bounded by how many photos the brief curated.
+        const reelHasPhotos = imageAssets.length > 0;
+        const byId = new Map(imageAssets.map((a) => [a.id, a]));
+        const n = reelHasPhotos
+          ? Math.min(Math.max(shots.length, 1), imageAssets.length)
+          : reelShotCount(job);
         for (let i = 0; i < n; i++) {
           // Per-shot guard: a mid-loop enqueue failure records a FAILED master
           // (rollupReel then fails the reel cleanly) instead of throwing out of
@@ -368,8 +376,12 @@ export async function POST(req: NextRequest) {
             const seedPrompt = optimized || `${job.brief_notes || "An on-brand cinematic dental clip."} ${brandHint}`;
             let seedUrl: string;
             let seedAssetId: number | null = null;
-            if (imageAssets.length) {
-              const a = imageAssets[i] ?? imageAssets[i % imageAssets.length];
+            if (reelHasPhotos) {
+              // Seed from the real photo the brief chose for this beat.
+              const a =
+                (shot?.source_asset_id != null ? byId.get(shot.source_asset_id) : undefined) ??
+                imageAssets[i] ??
+                imageAssets[i % imageAssets.length];
               seedUrl = a.local_path;
               seedAssetId = a.id;
             } else {

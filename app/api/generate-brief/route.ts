@@ -89,7 +89,9 @@ export async function POST(req: NextRequest) {
   // the user's source photos first, then the inspiration references, in order.
   // Montage jobs are CURATION jobs — the model must see the whole set.
   const isMontage = isMontageJob(job);
-  const sourceImages = assets.filter((a) => a.media !== "video").slice(0, isMontage ? 12 : 4);
+  // Montage + real-photo reels curate from the whole set; other jobs use ≤4 seeds.
+  const maxSeeds = isMontage ? 12 : isReelJob(job) ? 10 : 4;
+  const sourceImages = assets.filter((a) => a.media !== "video").slice(0, maxSeeds);
 
   const directorBrief = (job.brief_doc_text ?? "").trim();
   const system = briefSystemPrompt(job, block, directorBrief, inspiration, sourceImages.length);
@@ -165,10 +167,11 @@ export async function POST(req: NextRequest) {
     }
     brief = parsed;
 
-    // Reel safety net: a reel needs one shot PER BEAT. If the model collapsed it
-    // (e.g. a "5-second clip" direction), retry ONCE with an explicit correction —
-    // rendering N clones of one prompt yields N different random faces, not a reel.
-    if (isReelJob(job)) {
+    // Reel safety net: a GENERATED reel needs one shot PER BEAT. If the model
+    // collapsed it (e.g. a "5-second clip" direction), retry ONCE — N clones of
+    // one prompt yields N different random faces, not a reel. (A real-photo reel
+    // correctly returns one shot per photo, so it's exempt.)
+    if (isReelJob(job) && sourceImages.length === 0) {
       const want = reelShotCount(job);
       if (brief.shots.length < want) {
         try {

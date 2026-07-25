@@ -255,7 +255,9 @@ export function briefSystemPrompt(
     ? `one shot per SELECTED photo (${montageUse})`
     : isOptimize
       ? "exactly 1 shot"
-      : isReel
+      : isReel && sourceImageCount > 0
+        ? `one shot per SELECTED real photo — the beats of ONE cinematic reel built from the user's real photos (hook → build → payoff)`
+        : isReel
         ? `exactly ${reelShotCount(job)} shots — the sequential beats of ONE cinematic reel: open on a scroll-stopping hook, build with proof/benefit, close on the payoff. Each shot is a distinct cinematic scene that SHARES ONE consistent visual look`
         : carouselN > 1
           ? `exactly ${carouselN} shots — these are the ${carouselN} slides of ONE carousel post: a cohesive set (consistent style, lighting and palette) that flows slide-to-slide (open with a hook, build in the middle, end with a soft call-to-action). Each slide must be visually distinct`
@@ -335,9 +337,25 @@ export function briefSystemPrompt(
           "Generate fresh imagery from the direction. Return 1-4 distinct, strong shots that together cover the idea.",
         ].join("\n"),
     "",
-    isReel
+    isReel && sourceImageCount > 0
       ? [
-          "# CINEMATIC REEL SHOTS",
+          "# CINEMATIC REEL FROM THE USER'S REAL PHOTOS (best-quality path)",
+          "The user attached REAL photos (their actual doctors / clinic — you can SEE them above). Build the reel FROM these real photos. This is the PREFERRED, most realistic path: the real people, faces, uniforms and REAL logo are preserved exactly — never invent or describe a new AI scene.",
+          `Choose the strongest photos and return ONE shot PER chosen photo (${Math.min(sourceImageCount, reelShotCount(job))}–${Math.min(Math.max(sourceImageCount, 3), 6)} shots), ordered as a narrative: most arresting FIRST (hook), warmth/proof in the middle, strongest closer last.`,
+          "For EACH shot return:",
+          "- source_asset_id = the id of that real photo (ONLY ids from the attached list; each id used at most ONCE; never null).",
+          "- prompt = a SHORT preservation instruction (NOT a new scene): e.g. \"Preserve the real person, face, uniform, real logo and setting EXACTLY; add only a slow, subtle cinematic push-in. No new elements, no scene change, no added or altered text, no extra people.\"",
+          "- motion = a gentle move (slow push-in or soft pan).",
+          "- caption = a SHORT kinetic on-screen line for this beat (≤ 6 words, editorial, no hashtags/emoji).",
+          "- voiceover = ONE natural spoken sentence for this beat (~13 words); read in order the voiceovers flow as ONE continuous narration (hook → build → payoff).",
+          "- negative = \"changing the person, altering the face or identity, morphing, distortion, added or altered text, extra people, warping the uniform\" plus the baseline.",
+          "- duration_seconds = 5.",
+          "Set mode = \"dynamic\". Captions, voiceover, music and the brand CTA card are composited by the app on top of the real footage — do NOT bake any of them into a shot.",
+        ].join("\n")
+      : isReel
+      ? [
+          "# CINEMATIC REEL SHOTS (generated — no real photos were uploaded)",
+          "NOTE: for the MOST realistic reel, the user can upload real photos of their own doctors/clinic and we animate those instead. With none attached, generate the scenes as below.",
           `⛔ YOU MUST RETURN EXACTLY ${reelShotCount(job)} SHOTS — one per beat. Returning fewer is a FAILURE. Even if the direction describes "a clip" / "a 5-second clip" / a single moment, EXPAND it into ${reelShotCount(job)} distinct sequential beats (different framings/moments of the same story). Never collapse the reel to one shot.`,
           "Each shot is ONE 5s Kling clip; the shots are CONCATENATED into a single reel. A brand CTA end-card is appended automatically — do NOT create a shot for it.",
           "",
@@ -373,9 +391,11 @@ export function briefSystemPrompt(
     "- Respect every hard guardrail. No medical-outcome claims, ever.",
     isMontage
       ? "- Every shot's source_asset_id MUST be one of the listed source photo ids; motion MUST be one of zoom-in | zoom-out | pan-left | pan-right."
-      : isOptimize
-        ? "- Reference each source asset id in source_asset_id."
-        : "- source_asset_id = null (text-to-image).",
+      : isReel && sourceImageCount > 0
+        ? "- Every shot's source_asset_id MUST be one of the listed REAL photo ids (each used at most once, never null) — the reel is built from those real photos."
+        : isOptimize
+          ? "- Reference each source asset id in source_asset_id."
+          : "- source_asset_id = null (text-to-image).",
     ...(isMontage
       ? []
       : [

@@ -274,7 +274,9 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
   // matches the pipeline: photos → montage, a clip → enhance/animate. Don't
   // override an explicit AI choice (animate/generate) when photos are seeds.
   if (job.media === "video") {
-    const aiMode = job.video_mode === "animate" || job.video_mode === "generate";
+    // "reel" also consumes uploaded photos (real-doctor reels) — adding images
+    // must NOT flip a reel into a montage.
+    const aiMode = job.video_mode === "animate" || job.video_mode === "generate" || job.video_mode === "reel";
     if (addedVideo) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
     else if (addedImage && !aiMode) update.video_mode = "montage";
     // Montage is single-output: never leave a stranded carousel_count>=2 (which
@@ -406,7 +408,9 @@ export async function attachJobAssets(
   // Source drives the video mode: photos → montage, a clip → enhance/animate;
   // don't override an explicit AI choice when photos are seeds.
   if (job.media === "video") {
-    const aiMode = job.video_mode === "animate" || job.video_mode === "generate";
+    // "reel" also consumes uploaded photos (real-doctor reels) — adding images
+    // must NOT flip a reel into a montage.
+    const aiMode = job.video_mode === "animate" || job.video_mode === "generate" || job.video_mode === "reel";
     if (addedVideo) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
     else if (addedImage && !aiMode) update.video_mode = "montage";
     // Montage is single-output: never leave a stranded carousel_count>=2 (which
