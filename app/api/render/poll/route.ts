@@ -253,14 +253,27 @@ function isReelMaster(r: Render): boolean {
 }
 
 // Reel shots are the platform-null meta.reel masters, ordered by shot_index.
+// A job can hold masters from MORE THAN ONE submission (a re-submit, or a retry
+// after a failure). Only the LATEST batch is the reel: take the newest row per
+// shot_index and keep exactly the shots that batch declared (meta.of), so stale
+// masters from an earlier submit can never pad or deadlock the assembly.
 async function loadReelMasters(jobId: number): Promise<Render[]> {
   const { data } = await supabase
     .from("renders")
     .select("*")
     .eq("job_id", jobId)
     .is("platform", null)
-    .order("shot_index", { ascending: true });
-  return ((data as Render[]) ?? []).filter(isReelMaster);
+    .order("id", { ascending: false });
+  const all = ((data as Render[]) ?? []).filter(isReelMaster);
+  if (!all.length) return [];
+  // newest row wins per shot index (rows are already newest-first)
+  const bySlot = new Map<number, Render>();
+  for (const r of all) if (!bySlot.has(r.shot_index)) bySlot.set(r.shot_index, r);
+  const newest = all[0];
+  const expected = Number(readMeta(newest).of) || bySlot.size;
+  return Array.from(bySlot.values())
+    .filter((r) => r.shot_index < expected)
+    .sort((a, b) => a.shot_index - b.shot_index);
 }
 // Platforms that already have a COMPLETED reel deliverable (failed ones don't count).
 async function deliveredReelPlatforms(jobId: number): Promise<Set<string>> {

@@ -82,6 +82,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Pick at least one channel to export to." }, { status: 400 });
   }
 
+  // Guard against a double-submit: a second click while clips are still
+  // rendering/assembling would enqueue a whole extra set of masters (paid) and
+  // muddle the assembly. Clear the results first to start over deliberately.
+  const inFlight = (await listRenders(jobId)).filter((r) =>
+    ["queued", "processing", "finishing", "assembling"].includes(r.status),
+  );
+  if (inFlight.length) {
+    return NextResponse.json(
+      { error: "This job is still rendering. Wait for it to finish, or clear the results to start over." },
+      { status: 409 },
+    );
+  }
+
   const brand = await getBrandKit(job.project_id);
   // resolve the logo variation: the one chosen on the job, else the project default.
   let logoPath = brand?.logo_path ?? null;
