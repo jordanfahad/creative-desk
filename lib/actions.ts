@@ -172,6 +172,71 @@ export async function removeLogo(formData: FormData): Promise<void> {
   revalidatePath("/brand");
 }
 
+// ── Team / Characters (reusable real people) ──
+// Real team photos/videos kept at the project level so they can be pulled into
+// any reel/video. Stored as assets with kind='character' (project-scoped, not
+// tied to a job until attached).
+
+export async function uploadCharacter(formData: FormData): Promise<void> {
+  const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!files.length) return;
+  const pid = await getActiveProjectId();
+  const name = (formData.get("name") ?? "").toString().trim();
+  for (const file of files.slice(0, MAX_FILES_PER_UPLOAD)) {
+    const m = mediaOf(file);
+    if (!m || file.size > MAX_FILE_BYTES) continue;
+    // Never store an SVG served from the public bucket (stored-XSS vector) — the
+    // logo upload blocks it too; do the same for team photos.
+    if (/svg/i.test(file.type) || /\.svg$/i.test(file.name)) continue;
+    const url = await uploadFile(file, "assets");
+    await supabase.from("assets").insert({
+      project_id: pid,
+      filename: name || file.name,
+      local_path: url,
+      kind: "character",
+      media: m,
+      quality: "real",
+    });
+  }
+  revalidatePath("/brand");
+}
+
+export async function removeCharacter(formData: FormData): Promise<void> {
+  const id = Number(formData.get("asset_id"));
+  if (!Number.isFinite(id)) return;
+  // Only a character asset may be removed here (never a job creative).
+  const { data: a } = await supabase.from("assets").select("local_path, kind").eq("id", id).maybeSingle();
+  if (!a || a.kind !== "character") return;
+  await supabase.from("assets").delete().eq("id", id);
+  const k = pubKey(a.local_path);
+  if (k) await supabase.storage.from(BUCKET).remove([k]);
+  revalidatePath("/brand");
+}
+
+// Attach chosen team members to a job as source photos/videos (adds their asset
+// ids to the job's asset_ids). Project-scoped so a job can't borrow another
+// project's characters. Does NOT change video_mode (a reel stays a reel).
+export async function attachCharacters(formData: FormData): Promise<void> {
+  const jobId = Number(formData.get("job_id"));
+  if (!Number.isFinite(jobId)) return;
+  const ids = formData.getAll("character_id").map(Number).filter((n) => Number.isFinite(n));
+  if (!ids.length) return;
+  const { data: job } = await supabase.from("jobs").select("asset_ids, project_id").eq("id", jobId).maybeSingle();
+  if (!job) return;
+  const { data: chars } = await supabase
+    .from("assets")
+    .select("id")
+    .eq("project_id", job.project_id)
+    .eq("kind", "character")
+    .in("id", ids);
+  const valid = (chars ?? []).map((c) => Number(c.id));
+  if (!valid.length) return;
+  const existing = JSON.parse(job.asset_ids || "[]") as number[];
+  const merged = Array.from(new Set([...existing, ...valid]));
+  await supabase.from("jobs").update({ asset_ids: JSON.stringify(merged), updated_at: now() }).eq("id", jobId);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
 export async function addGuideline(formData: FormData): Promise<void> {
   const title = (formData.get("title") ?? "").toString().trim();
   const body = (formData.get("body") ?? "").toString().trim();

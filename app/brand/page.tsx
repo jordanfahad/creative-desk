@@ -1,10 +1,12 @@
-import { getBrandKit, listGuidelines, listLogos, assetWebPath, resolveDocUrl } from "@/lib/db";
+import { getBrandKit, listGuidelines, listLogos, listCharacters, assetWebPath, resolveDocUrl } from "@/lib/db";
 import { getActiveProject } from "@/lib/project";
 import {
   saveBrandKit,
   uploadLogo,
   removeLogo,
   setDefaultLogo,
+  uploadCharacter,
+  removeCharacter,
   addGuideline,
   uploadGuideline,
   toggleGuideline,
@@ -36,6 +38,7 @@ export default async function BrandPage() {
   const brand = await getBrandKit(pid);
   const guidelines = await listGuidelines(pid);
   const logos = await listLogos(pid);
+  const characters = await listCharacters(pid);
   // Confidential guideline PDFs are served via short-lived signed URLs.
   const docUrls = new Map<number, string>();
   await Promise.all(
@@ -156,6 +159,67 @@ export default async function BrandPage() {
           <div style={{ marginTop: 12 }}>
             <button className="btn" type="submit">
               {logos.length ? "Add another logo" : "Add logo"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <h2>Team &amp; characters</h2>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        Upload real photos (or short clips) of your <strong>own doctors, hygienists and team</strong> —
+        ideally clean studio portraits in your branded gowns. Add them once here, then pull any of them
+        into a reel (from the job&apos;s <strong>“Add from Team”</strong> picker) and the reel animates
+        those <strong>real people</strong> — same face, real uniform, real logo — instead of a generated
+        stranger. This is the most realistic, on-brand result.
+      </p>
+      <div className="card">
+        {characters.length > 0 && (
+          <div className="grid cols-3" style={{ marginBottom: 18 }}>
+            {characters.map((c) => (
+              <div key={c.id}>
+                {c.media === "video" ? (
+                  <video
+                    src={assetWebPath(c.local_path)}
+                    muted
+                    playsInline
+                    style={{ width: "100%", height: 150, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)", background: "#000" }}
+                  />
+                ) : (
+                  <img
+                    src={assetWebPath(c.local_path)}
+                    alt={c.filename}
+                    style={{ width: "100%", height: 150, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
+                  />
+                )}
+                <div className="row" style={{ justifyContent: "space-between", margin: "8px 0 6px", alignItems: "center" }}>
+                  <span className="small">
+                    <strong>{c.filename}</strong> <span className="muted">· {c.media}</span>
+                  </span>
+                </div>
+                <form action={removeCharacter}>
+                  <input type="hidden" name="asset_id" value={c.id} />
+                  <button className="btn danger sm" type="submit">
+                    Remove
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
+        )}
+        <form action={uploadCharacter}>
+          <div className="grid cols-2">
+            <div>
+              <label style={{ marginTop: 0 }}>Photo or video</label>
+              <input type="file" name="file" accept="image/*,video/*" multiple required />
+            </div>
+            <div>
+              <label style={{ marginTop: 0 }}>Name (optional)</label>
+              <input type="text" name="name" placeholder="e.g. Dr. Ahmad" />
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <button className="btn" type="submit">
+              {characters.length ? "Add more team members" : "Add team member"}
             </button>
           </div>
         </form>

@@ -12,6 +12,7 @@ import {
   jobInspirationIds,
   isMontageJob,
   isReelJob,
+  listCharacters,
 } from "@/lib/db";
 import { parseBrief, type Brief } from "@/lib/context";
 import {
@@ -37,6 +38,7 @@ import DeleteRenderButton from "./DeleteRenderButton";
 import { JobAssetUpload } from "@/components/JobAssetUpload";
 import { MusicPicker } from "@/components/MusicPicker";
 import { VoicePicker } from "@/components/VoicePicker";
+import { CharacterPicker } from "@/components/CharacterPicker";
 
 export const dynamic = "force-dynamic";
 
@@ -144,6 +146,17 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
   const photoAssets = assets.filter((a) => a.media !== "video");
   const videoAssets = assets.filter((a) => a.media === "video");
 
+  // Reusable team members (real doctors/staff) for the "Add from Team" picker.
+  const characters = isVideoJob
+    ? (await listCharacters(job.project_id)).map((c) => ({
+        id: c.id,
+        name: c.filename || "Team member",
+        media: c.media,
+        url: assetWebPath(c.local_path),
+      }))
+    : [];
+  const attachedAssetIds = assets.map((a) => a.id);
+
   // Spend estimate: paid AI generations only — channel re-crops are free.
   const imageAssetCount = photoAssets.length;
   let aiCalls = 0;
@@ -218,6 +231,9 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
                 </div>
               )}
               <JobAssetUpload jobId={job.id} accept="image/*" buttonLabel="+ Add photos" />
+
+              {/* Pull real team members from the brand-kit library into this job. */}
+              <CharacterPicker jobId={job.id} characters={characters} attachedIds={attachedAssetIds} />
 
               {/* Existing clip → enhance (optimize only) */}
               {isOptimize && (

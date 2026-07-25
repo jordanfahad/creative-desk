@@ -158,6 +158,20 @@ export async function getLogo(id: number): Promise<Logo | undefined> {
   return (data as Logo) ?? undefined;
 }
 
+// Reusable "characters" = real team members (photos/videos) kept at the project
+// level so they can be pulled into any reel/video without re-uploading. Stored as
+// assets with kind='character' (no separate table needed).
+export async function listCharacters(projectId: number): Promise<Asset[]> {
+  const { data, error } = await supabase
+    .from("assets")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("kind", "character")
+    .order("id", { ascending: false });
+  logErr("listCharacters", error);
+  return (data as Asset[]) ?? [];
+}
+
 export async function getDefaultLogo(projectId: number): Promise<Logo | undefined> {
   const { data } = await supabase
     .from("cd_logos")
