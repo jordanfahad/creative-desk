@@ -147,13 +147,18 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
   const videoAssets = assets.filter((a) => a.media === "video");
 
   // Reusable team members (real doctors/staff) for the "Add from Team" picker.
+  // Reels/create-video animate STILLS, so only offer image characters here — a
+  // video character would be a no-op seed (and couldn't be removed from a
+  // create-video job). Video team clips stay in the library for future use.
   const characters = isVideoJob
-    ? (await listCharacters(job.project_id)).map((c) => ({
-        id: c.id,
-        name: c.filename || "Team member",
-        media: c.media,
-        url: assetWebPath(c.local_path),
-      }))
+    ? (await listCharacters(job.project_id))
+        .filter((c) => c.media === "image")
+        .map((c) => ({
+          id: c.id,
+          name: c.filename || "Team member",
+          media: c.media,
+          url: assetWebPath(c.local_path),
+        }))
     : [];
   const attachedAssetIds = assets.map((a) => a.id);
 

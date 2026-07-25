@@ -183,7 +183,15 @@ export async function getDefaultLogo(projectId: number): Promise<Logo | undefine
 }
 
 export async function listAssets(projectId: number): Promise<Asset[]> {
-  const { data, error } = await supabase.from("assets").select("*").eq("project_id", projectId).order("created_at", { ascending: false });
+  // Exclude team characters — they're managed ONLY in Brand kit → Team, so the
+  // generic /assets editor can't re-kind one (evicting it from the Team library)
+  // or delete it without the storage cleanup removeCharacter does.
+  const { data, error } = await supabase
+    .from("assets")
+    .select("*")
+    .eq("project_id", projectId)
+    .neq("kind", "character")
+    .order("created_at", { ascending: false });
   logErr("listAssets", error);
   return (data as Asset[]) ?? [];
 }

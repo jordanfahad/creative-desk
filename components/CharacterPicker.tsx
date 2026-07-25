@@ -114,6 +114,10 @@ export function CharacterPicker({
               {busy ? "Adding…" : sel.size ? `Add ${sel.size} to this job` : "Select team members"}
             </button>
           </div>
+          <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }}>
+            After adding, click <strong>✨ Optimize prompt</strong> again so the captions &amp;
+            voiceover are written for these people.
+          </p>
         </>
       )}
       {characters.length > 0 && available.length === 0 && (
