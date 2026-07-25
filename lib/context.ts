@@ -323,7 +323,7 @@ export function briefSystemPrompt(
     "- COLOR GRADE: pull the brand palette HEX codes above into the lighting/wardrobe/props (navy, mint, teal, off-white tones).",
     "- MOOD: match the brand voice above — calm, premium, trustworthy, reassuring. NEVER hype, salesy, or discount-y.",
     "- REALISM: end with cues like 'photorealistic, ultra-detailed, professional photography, natural skin texture, crisp focus'.",
-    "- AVOID (state what to keep out): no on-image text/words/logos (added later in the editor), no medical claims or before/after, no distorted hands or teeth, no stocky/plastic/CGI look, nothing in the hard-guardrail list.",
+    "- AVOID (state what to keep out): NO logos, brand marks, badges, embroidery, signage, watermarks, or ANY readable text/words/numbers in the frame — the model only produces garbled fakes, and the REAL logo is composited afterwards. Drop any 'put the logo on it' request from the direction. Also: no medical claims or before/after, no distorted hands or teeth, no stocky/plastic/CGI look, nothing in the hard-guardrail list. Keep wardrobe a plain UNBRANDED clean coat/scrubs.",
     "",
     isOptimize
       ? [
@@ -339,13 +339,27 @@ export function briefSystemPrompt(
       ? [
           "# CINEMATIC REEL SHOTS",
           "Each shot is ONE 5s Kling clip; the shots are CONCATENATED into a single reel. A brand CTA end-card is appended automatically — do NOT create a shot for it.",
+          "",
+          "## HARD RULE — NO LOGOS OR TEXT IN THE FRAME (this is the #1 quality killer)",
+          "The image model CANNOT render a real brand logo or readable text — it produces garbled fake marks and misspelled words that look amateur and differ every shot. So:",
+          "- NEVER write 'logo', 'branded uniform', 'Dental Nation logo', a brand name on a wall/sign/coat, or ANY on-frame text/words/numbers into a shot.prompt — EVEN IF THE USER'S DIRECTION EXPLICITLY ASKS FOR IT. Silently drop that request.",
+          "- Wardrobe is a PLAIN, clean, unbranded white coat / scrubs — no embroidery, no badge, no chest logo, no lanyard text.",
+          "- The REAL brand logo is composited by the app afterwards (a crisp corner watermark + the closing card) — that is the ONLY correct way the mark appears. Your job is clean, textless footage.",
+          "- Put 'text, words, letters, logos, badges, brand marks, watermark, signage, embroidery, numbers' in every shot's `negative`.",
+          "",
+          "## ONE CONSISTENT HERO (cohesion of PERSON, not just palette)",
+          "In `concept`, cast ONE specific protagonist and describe them precisely: gender, apparent age, ethnicity, hair (style + colour), build, exact wardrobe. Then in EVERY shot that shows a person, describe THAT SAME PERSON with the identical wording so it reads as one human across the reel — never a different face each beat. (If a shot has no person, it's a detail/environment shot — see below.)",
+          "",
+          "## VARY THE SHOT TYPES (a reel is not 4 headshots)",
+          `Across the ${reelShotCount(job)} shots, deliberately mix framings like a real film — do NOT repeat the same smiling head-and-shoulders portrait. Use a spread such as: a WIDE establishing shot of the clinic; a MEDIUM of the hero at work; a tight DETAIL/macro (hands, a tool on a tray, a genuine smile close-up, light through a window); a warm INTERACTION (hero greeting a patient). Open on the most arresting frame.`,
+          "",
           "For EACH shot return:",
-          "- prompt: the OPENING FRAME described richly (the model animates from it), 45-120 words, and TEXTLESS (captions are burned in later — never bake words into the frame).",
+          "- prompt: the OPENING FRAME described richly (the model animates from it), 45-120 words, TEXTLESS and LOGO-FREE, restating the hero + the look-anchor.",
           "- motion: a premium, gentle camera move (slow push-in, soft pan, subtle parallax) + natural subject motion.",
           "- caption: a SHORT kinetic on-screen line — the words the viewer READS on this beat (≤ 6 words, editorial, no hashtags/emoji).",
           "- voiceover: ONE natural spoken sentence for this beat within the word budget (~13 words for a 5s clip). Read in order, the voiceover lines must flow as ONE continuous narration (hook → build → payoff).",
           "- duration_seconds = 5.",
-          "COHESION IS CRITICAL: define ONE look (color grade / lighting / wardrobe / location) in `concept`, then restate that SAME look-anchor sentence inside EVERY shot.prompt so the independently-generated clips feel like one film.",
+          "COHESION: define ONE look (color grade / lighting / location) in `concept` and restate that SAME look-anchor sentence inside EVERY shot.prompt so the independently-generated clips feel like one film.",
           "Set mode = \"dynamic\".",
         ].join("\n")
       : isVideo
