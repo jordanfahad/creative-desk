@@ -162,13 +162,22 @@ export async function getLogo(id: number): Promise<Logo | undefined> {
 // level so they can be pulled into any reel/video without re-uploading. Stored as
 // assets with kind='character' (no separate table needed).
 export async function listCharacters(projectId: number): Promise<Asset[]> {
+  return listLibraryByKind(projectId, "character");
+}
+
+// Clinic / office / store photos & videos — reusable real B-roll for reels.
+export async function listLocations(projectId: number): Promise<Asset[]> {
+  return listLibraryByKind(projectId, "location");
+}
+
+async function listLibraryByKind(projectId: number, kind: string): Promise<Asset[]> {
   const { data, error } = await supabase
     .from("assets")
     .select("*")
     .eq("project_id", projectId)
-    .eq("kind", "character")
+    .eq("kind", kind)
     .order("id", { ascending: false });
-  logErr("listCharacters", error);
+  logErr("listLibrary", error);
   return (data as Asset[]) ?? [];
 }
 
@@ -183,14 +192,15 @@ export async function getDefaultLogo(projectId: number): Promise<Logo | undefine
 }
 
 export async function listAssets(projectId: number): Promise<Asset[]> {
-  // Exclude team characters — they're managed ONLY in Brand kit → Team, so the
-  // generic /assets editor can't re-kind one (evicting it from the Team library)
-  // or delete it without the storage cleanup removeCharacter does.
+  // Exclude brand-library assets (Team characters + Clinic locations) — they're
+  // managed ONLY in Brand kit, so the generic /assets editor can't re-kind one
+  // (evicting it from the library) or delete it without the storage cleanup
+  // removeLibraryAsset does.
   const { data, error } = await supabase
     .from("assets")
     .select("*")
     .eq("project_id", projectId)
-    .neq("kind", "character")
+    .not("kind", "in", "(character,location)")
     .order("created_at", { ascending: false });
   logErr("listAssets", error);
   return (data as Asset[]) ?? [];

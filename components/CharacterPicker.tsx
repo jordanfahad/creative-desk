@@ -2,19 +2,21 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { attachCharacters } from "@/lib/actions";
+import { attachLibraryAssets } from "@/lib/actions";
 
 export interface PickerCharacter {
   id: number;
   name: string;
+  category?: string; // "Doctor" | "Clinic"
   media: "image" | "video";
   url: string;
 }
 
 /**
- * "Add from Team" — pull reusable team members (uploaded once in the brand kit)
- * into this job as source photos/videos. For a reel, the chosen real people are
- * animated (subject preserved) instead of a generated stranger.
+ * "Add from Team & clinic" — pull reusable library assets (real doctors + clinic
+ * shots, uploaded once in the brand kit) into this job as source photos. For a
+ * reel, the chosen real people/rooms are animated (subject preserved) instead of
+ * a generated stranger.
  */
 export function CharacterPicker({
   jobId,
@@ -50,7 +52,7 @@ export function CharacterPicker({
       const fd = new FormData();
       fd.set("job_id", String(jobId));
       for (const id of sel) fd.append("character_id", String(id));
-      await attachCharacters(fd);
+      await attachLibraryAssets(fd);
       setSel(new Set());
       router.refresh();
     } catch (e) {
@@ -63,11 +65,11 @@ export function CharacterPicker({
   return (
     <div style={{ marginTop: 16, borderTop: "1px solid var(--line, #e5e7eb)", paddingTop: 14 }}>
       <p className="small muted" style={{ marginTop: 0 }}>
-        <strong>Add from Team.</strong> Feature your real doctors/staff — a reel animates the real
-        person (same face, real gown &amp; logo).{" "}
+        <strong>Add from Team &amp; clinic.</strong> Feature your real doctors and real clinic — a reel
+        animates the real person/room (same face, real gown, real logo).{" "}
         {characters.length === 0 && (
           <>
-            None yet — add them in <a href="/brand">Brand kit → Team &amp; characters</a>.
+            None yet — add them in <a href="/brand">Brand kit → Team &amp; Clinic</a>.
           </>
         )}
       </p>
@@ -103,6 +105,7 @@ export function CharacterPicker({
                     </span>
                   )}
                   <span className="small" style={{ display: "block", padding: "5px 7px" }}>
+                    {c.category ? <span className="muted">{c.category} · </span> : null}
                     {c.name}
                   </span>
                 </button>

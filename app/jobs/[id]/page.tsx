@@ -13,6 +13,7 @@ import {
   isMontageJob,
   isReelJob,
   listCharacters,
+  listLocations,
 } from "@/lib/db";
 import { parseBrief, type Brief } from "@/lib/context";
 import {
@@ -146,16 +147,20 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
   const photoAssets = assets.filter((a) => a.media !== "video");
   const videoAssets = assets.filter((a) => a.media === "video");
 
-  // Reusable team members (real doctors/staff) for the "Add from Team" picker.
-  // Reels/create-video animate STILLS, so only offer image characters here — a
-  // video character would be a no-op seed (and couldn't be removed from a
-  // create-video job). Video team clips stay in the library for future use.
+  // Reusable brand library (real doctors + clinic shots) for the "Add from Team
+  // & clinic" picker. Reels/create-video animate STILLS, so only offer image
+  // assets — a video would be a no-op seed (and couldn't be removed from a
+  // create-video job). Video clips stay in the library for future use.
   const characters = isVideoJob
-    ? (await listCharacters(job.project_id))
+    ? [
+        ...(await listCharacters(job.project_id)).map((c) => ({ ...c, category: "Doctor" as const })),
+        ...(await listLocations(job.project_id)).map((c) => ({ ...c, category: "Clinic" as const })),
+      ]
         .filter((c) => c.media === "image")
         .map((c) => ({
           id: c.id,
-          name: c.filename || "Team member",
+          name: c.filename || c.category,
+          category: c.category,
           media: c.media,
           url: assetWebPath(c.local_path),
         }))

@@ -172,28 +172,33 @@ export async function removeLogo(formData: FormData): Promise<void> {
   revalidatePath("/brand");
 }
 
-// ── Team / Characters (reusable real people) ──
-// Real team photos/videos kept at the project level so they can be pulled into
-// any reel/video. Stored as assets with kind='character' (project-scoped, not
-// tied to a job until attached).
+// ── Brand library: Team (people) + Clinic/locations (places) ──
+// Reusable real photos/videos kept at the project level so they can be pulled
+// into any reel/video. Stored as assets with kind 'character' (people) or
+// 'location' (clinic/office/store) — project-scoped, not tied to a job until
+// attached. LIBRARY_KINDS gates what these actions may touch so they can never
+// edit/delete an ordinary job creative.
+const LIBRARY_KINDS = new Set(["character", "location"]);
 
-export async function uploadCharacter(formData: FormData): Promise<void> {
+export async function uploadLibraryAsset(formData: FormData): Promise<void> {
   const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
   if (!files.length) return;
+  const catRaw = (formData.get("category") ?? "character").toString();
+  const kind = LIBRARY_KINDS.has(catRaw) ? catRaw : "character";
   const pid = await getActiveProjectId();
   const name = (formData.get("name") ?? "").toString().trim();
   for (const file of files.slice(0, MAX_FILES_PER_UPLOAD)) {
     const m = mediaOf(file);
     if (!m || file.size > MAX_FILE_BYTES) continue;
     // Never store an SVG served from the public bucket (stored-XSS vector) — the
-    // logo upload blocks it too; do the same for team photos.
+    // logo upload blocks it too; do the same for library media.
     if (/svg/i.test(file.type) || /\.svg$/i.test(file.name)) continue;
     const url = await uploadFile(file, "assets");
     await supabase.from("assets").insert({
       project_id: pid,
       filename: name || file.name,
       local_path: url,
-      kind: "character",
+      kind,
       media: m,
       quality: "real",
     });
@@ -201,35 +206,35 @@ export async function uploadCharacter(formData: FormData): Promise<void> {
   revalidatePath("/brand");
 }
 
-export async function removeCharacter(formData: FormData): Promise<void> {
+export async function removeLibraryAsset(formData: FormData): Promise<void> {
   const id = Number(formData.get("asset_id"));
   if (!Number.isFinite(id)) return;
-  // Only a character asset may be removed here (never a job creative).
+  // Only a library asset (character/location) may be removed here — never a job creative.
   const { data: a } = await supabase.from("assets").select("local_path, kind").eq("id", id).maybeSingle();
-  if (!a || a.kind !== "character") return;
+  if (!a || !LIBRARY_KINDS.has(a.kind)) return;
   await supabase.from("assets").delete().eq("id", id);
   const k = pubKey(a.local_path);
   if (k) await supabase.storage.from(BUCKET).remove([k]);
   revalidatePath("/brand");
 }
 
-// Attach chosen team members to a job as source photos/videos (adds their asset
-// ids to the job's asset_ids). Project-scoped so a job can't borrow another
-// project's characters. Does NOT change video_mode (a reel stays a reel).
-export async function attachCharacters(formData: FormData): Promise<void> {
+// Attach chosen library assets (team members / clinic shots) to a job as source
+// photos/videos. Project-scoped so a job can't borrow another project's assets.
+// Does NOT change video_mode (a reel stays a reel).
+export async function attachLibraryAssets(formData: FormData): Promise<void> {
   const jobId = Number(formData.get("job_id"));
   if (!Number.isFinite(jobId)) return;
   const ids = formData.getAll("character_id").map(Number).filter((n) => Number.isFinite(n));
   if (!ids.length) return;
   const { data: job } = await supabase.from("jobs").select("asset_ids, project_id").eq("id", jobId).maybeSingle();
   if (!job) return;
-  const { data: chars } = await supabase
+  const { data: libs } = await supabase
     .from("assets")
     .select("id")
     .eq("project_id", job.project_id)
-    .eq("kind", "character")
+    .in("kind", ["character", "location"])
     .in("id", ids);
-  const valid = (chars ?? []).map((c) => Number(c.id));
+  const valid = (libs ?? []).map((c) => Number(c.id));
   if (!valid.length) return;
   const existing = JSON.parse(job.asset_ids || "[]") as number[];
   const merged = Array.from(new Set([...existing, ...valid]));

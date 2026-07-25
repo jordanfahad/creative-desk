@@ -1,12 +1,12 @@
-import { getBrandKit, listGuidelines, listLogos, listCharacters, assetWebPath, resolveDocUrl } from "@/lib/db";
+import { getBrandKit, listGuidelines, listLogos, listCharacters, listLocations, assetWebPath, resolveDocUrl } from "@/lib/db";
 import { getActiveProject } from "@/lib/project";
 import {
   saveBrandKit,
   uploadLogo,
   removeLogo,
   setDefaultLogo,
-  uploadCharacter,
-  removeCharacter,
+  uploadLibraryAsset,
+  removeLibraryAsset,
   addGuideline,
   uploadGuideline,
   toggleGuideline,
@@ -39,6 +39,7 @@ export default async function BrandPage() {
   const guidelines = await listGuidelines(pid);
   const logos = await listLogos(pid);
   const characters = await listCharacters(pid);
+  const locations = await listLocations(pid);
   // Confidential guideline PDFs are served via short-lived signed URLs.
   const docUrls = new Map<number, string>();
   await Promise.all(
@@ -196,7 +197,7 @@ export default async function BrandPage() {
                     <strong>{c.filename}</strong> <span className="muted">· {c.media}</span>
                   </span>
                 </div>
-                <form action={removeCharacter}>
+                <form action={removeLibraryAsset}>
                   <input type="hidden" name="asset_id" value={c.id} />
                   <button className="btn danger sm" type="submit">
                     Remove
@@ -206,7 +207,8 @@ export default async function BrandPage() {
             ))}
           </div>
         )}
-        <form action={uploadCharacter}>
+        <form action={uploadLibraryAsset}>
+          <input type="hidden" name="category" value="character" />
           <div className="grid cols-2">
             <div>
               <label style={{ marginTop: 0 }}>Photo or video</label>
@@ -220,6 +222,67 @@ export default async function BrandPage() {
           <div style={{ marginTop: 12 }}>
             <button className="btn" type="submit">
               {characters.length ? "Add more team members" : "Add team member"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <h2>Clinic &amp; locations</h2>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        Upload real photos (or clips) of your <strong>clinics, rooms, reception and equipment</strong>.
+        Pull them into a reel from <strong>“Add from Team &amp; clinic”</strong> and they become
+        cinematic B-roll — real rooms, real brand — that intercuts with your doctors for a premium,
+        varied reel (not just talking heads).
+      </p>
+      <div className="card">
+        {locations.length > 0 && (
+          <div className="grid cols-3" style={{ marginBottom: 18 }}>
+            {locations.map((c) => (
+              <div key={c.id}>
+                {c.media === "video" ? (
+                  <video
+                    src={assetWebPath(c.local_path)}
+                    muted
+                    playsInline
+                    style={{ width: "100%", height: 150, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)", background: "#000" }}
+                  />
+                ) : (
+                  <img
+                    src={assetWebPath(c.local_path)}
+                    alt={c.filename}
+                    style={{ width: "100%", height: 150, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)" }}
+                  />
+                )}
+                <div className="row" style={{ justifyContent: "space-between", margin: "8px 0 6px", alignItems: "center" }}>
+                  <span className="small">
+                    <strong>{c.filename}</strong> <span className="muted">· {c.media}</span>
+                  </span>
+                </div>
+                <form action={removeLibraryAsset}>
+                  <input type="hidden" name="asset_id" value={c.id} />
+                  <button className="btn danger sm" type="submit">
+                    Remove
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
+        )}
+        <form action={uploadLibraryAsset}>
+          <input type="hidden" name="category" value="location" />
+          <div className="grid cols-2">
+            <div>
+              <label style={{ marginTop: 0 }}>Photo or video</label>
+              <input type="file" name="file" accept="image/*,video/*" multiple required />
+            </div>
+            <div>
+              <label style={{ marginTop: 0 }}>Label (optional)</label>
+              <input type="text" name="name" placeholder="e.g. Al Wasl reception" />
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <button className="btn" type="submit">
+              {locations.length ? "Add more clinic media" : "Add clinic photo / video"}
             </button>
           </div>
         </form>
