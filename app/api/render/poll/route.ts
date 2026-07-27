@@ -289,6 +289,9 @@ async function deliveredReelPlatforms(jobId: number): Promise<Set<string>> {
 }
 // Max assembly attempts before a reel is declared failed (separate from the
 // per-shot render attempts; tracked in shot-0's meta so it survives releases).
+// One reel beat. Real uploaded clips are trimmed to this so a long phone video
+// can't swallow the reel; Ken Burns stills are built at this length too.
+const BEAT_SECONDS = 5;
 const MAX_ASSEMBLY_ATTEMPTS = 4;
 // A crashed assembly can't run its release, leaving shot-0 stuck "assembling".
 // Any claim older than this window (well beyond the 300s function budget) is
@@ -482,7 +485,10 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
               await rename(kb, fin);
             }
           } else {
-            await finishVideo(src, fin, { platform, ...logoOpts });
+            // A real uploaded clip can be any length — trim it to a beat so one
+            // long phone video doesn't swallow the whole reel.
+            const trim = mmeta.clip ? { duration: BEAT_SECONDS } : undefined;
+            await finishVideo(src, fin, { platform, ...logoOpts, trim });
             if (style.grade) {
               const g = join(dir, `g-${platform.key}-${i}-${uid}.mp4`);
               try {

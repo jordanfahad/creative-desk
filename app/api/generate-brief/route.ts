@@ -92,9 +92,13 @@ export async function POST(req: NextRequest) {
   // Montage + real-photo reels curate from the whole set; other jobs use ≤4 seeds.
   const maxSeeds = isMontage ? 12 : isReelJob(job) ? 10 : 4;
   const sourceImages = assets.filter((a) => a.media !== "video").slice(0, maxSeeds);
+  // A reel can also be built from REAL video clips. The vision model can't watch
+  // them, but it must still curate them as beats, so they count toward the
+  // real-material total and are listed by id/filename below.
+  const sourceClips = isReelJob(job) ? assets.filter((a) => a.media === "video").slice(0, maxSeeds) : [];
 
   const directorBrief = (job.brief_doc_text ?? "").trim();
-  const system = briefSystemPrompt(job, block, directorBrief, inspiration, sourceImages.length);
+  const system = briefSystemPrompt(job, block, directorBrief, inspiration, sourceImages.length + sourceClips.length);
   const attachedNote =
     sourceImages.length || inspiration.length
       ? `Attached images, in order: ${[
@@ -115,6 +119,9 @@ export async function POST(req: NextRequest) {
     job.brief_notes
       ? `Human direction (turn THIS into great prompts): ${job.brief_notes}`
       : "No direction given — infer a strong, on-brand idea from the brand context.",
+    sourceClips.length
+      ? `REAL VIDEO CLIPS are attached and MUST be used as beats too (you cannot see them; treat each as real footage of the clinic/team and write its caption + voiceover from its filename): ${sourceClips.map((a) => `#${a.id} "${a.filename}"`).join(", ")}. Set source_asset_id to these ids for those beats; prompt = "Use this real clip as-is."`
+      : "",
     isMontage
       ? `Curate ONLY from these attached photo ids (any other id is invalid): ${sourceImages.map((a) => a.id).join(", ")}`
       : assets.length

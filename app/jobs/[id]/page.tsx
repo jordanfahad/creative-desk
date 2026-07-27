@@ -158,15 +158,13 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
     ? [
         ...(await listCharacters(job.project_id)).map((c) => ({ ...c, category: "Doctor" as const })),
         ...(await listLocations(job.project_id)).map((c) => ({ ...c, category: "Clinic" as const })),
-      ]
-        .filter((c) => c.media === "image")
-        .map((c) => ({
-          id: c.id,
-          name: c.filename || c.category,
-          category: c.category,
-          media: c.media,
-          url: assetWebPath(c.local_path),
-        }))
+      ].map((c) => ({
+        id: c.id,
+        name: c.filename || c.category,
+        category: c.category,
+        media: c.media,
+        url: assetWebPath(c.local_path),
+      }))
     : [];
   const attachedAssetIds = assets.map((a) => a.id);
 
@@ -248,12 +246,23 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
               {/* Pull real team members from the brand-kit library into this job. */}
               <CharacterPicker jobId={job.id} characters={characters} attachedIds={attachedAssetIds} />
 
-              {/* Existing clip → enhance (optimize only) */}
-              {isOptimize && (
+              {/* Real footage: an existing clip to enhance (optimize), or real
+                  doctor/clinic video used as beats inside a reel (create). */}
+              {(isOptimize || isReel) && (
                 <div style={{ marginTop: 18, borderTop: "1px solid var(--line, #e5e7eb)", paddingTop: 14 }}>
                   <p className="small muted" style={{ marginTop: 0 }}>
-                    <strong>Or an existing clip.</strong> Upload a video to enhance, resize to every
-                    channel, and logo-stamp (no montage).
+                    {isOptimize ? (
+                      <>
+                        <strong>Or an existing clip.</strong> Upload a video to enhance, resize to every
+                        channel, and logo-stamp (no montage).
+                      </>
+                    ) : (
+                      <>
+                        <strong>Real video footage.</strong> Upload real clips of your doctors or clinic
+                        (phone video is fine) — each becomes a beat in the reel, trimmed and branded, with
+                        captions, music and your CTA on top. Real footage always beats AI.
+                      </>
+                    )}
                   </p>
                   {videoAssets.length > 0 && (
                     <div className="grid cols-3" style={{ marginBottom: 12 }}>

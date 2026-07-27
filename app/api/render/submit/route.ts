@@ -366,35 +366,39 @@ export async function POST(req: NextRequest) {
           );
         }
         const shots = brief.shots;
-        // Real-photo reel (BEST path): the user uploaded real doctor/clinic
-        // photos → animate THOSE (one beat per photo, subject preserved). Else
-        // generate the scenes. reelShotCount bounds the generated case; the
-        // photo case is bounded by how many photos the brief curated.
-        const reelHasPhotos = imageAssets.length > 0;
-        const byId = new Map(imageAssets.map((a) => [a.id, a]));
-        const n = reelHasPhotos
-          ? Math.min(Math.max(shots.length, 1), imageAssets.length)
+        // Real-material reel (BEST path): the user attached real doctor/clinic
+        // PHOTOS and/or real VIDEO clips → use THOSE (one beat each, subject
+        // preserved). Else generate the scenes with AI.
+        // Real video clips are used as-is (trimmed + branded); real photos get a
+        // Ken Burns move. Both skip AI entirely — free, instant, pixel-perfect.
+        const realAssets = [...imageAssets, ...videoAssets];
+        const reelHasReal = realAssets.length > 0;
+        const byId = new Map(realAssets.map((a) => [a.id, a]));
+        const n = reelHasReal
+          ? Math.min(Math.max(shots.length, 1), realAssets.length)
           : reelShotCount(job);
 
-        // PRESERVE path (default for real photos): don't send the photo through
-        // an AI video model at all — the assembler moves the camera over the REAL
-        // pixels (Ken Burns), so faces, uniforms and the real embroidered logo
-        // stay pixel-perfect. Free, instant, and nothing to poll.
-        const preserve = reelHasPhotos && (job.motion_mode ?? "preserve") === "preserve";
+        // PRESERVE path (default whenever real material is attached).
+        const preserve = reelHasReal && (job.motion_mode ?? "preserve") === "preserve";
         if (preserve) {
           for (let i = 0; i < n; i++) {
             const shot = shots[i] ?? shots[0];
             const a =
               (shot?.source_asset_id != null ? byId.get(shot.source_asset_id) : undefined) ??
-              imageAssets[i] ??
-              imageAssets[i % imageAssets.length];
+              realAssets[i] ??
+              realAssets[i % realAssets.length];
+            const isStill = a.media !== "video";
             await insertRender({
               group: i,
               sourceAssetId: a.id,
               platform: null,
               status: "completed",
               result_url: a.local_path,
-              meta: { reel: true, shot: i, of: n, still: true, motion: normalizeMotion(shot?.motion, i) },
+              meta: {
+                reel: true, shot: i, of: n,
+                still: isStill,
+                ...(isStill ? { motion: normalizeMotion(shot?.motion, i) } : { clip: true }),
+              },
             });
             results.push({ group: i, platform: null, status: "completed" });
           }
@@ -416,14 +420,16 @@ export async function POST(req: NextRequest) {
             const seedPrompt = optimized || `${job.brief_notes || "An on-brand cinematic dental clip."} ${brandHint}`;
             let seedUrl: string;
             let seedAssetId: number | null = null;
-            if (reelHasPhotos) {
-              // Seed from the real photo the brief chose for this beat.
-              const a =
-                (shot?.source_asset_id != null ? byId.get(shot.source_asset_id) : undefined) ??
-                imageAssets[i] ??
-                imageAssets[i % imageAssets.length];
-              seedUrl = a.local_path;
-              seedAssetId = a.id;
+            // AI-motion path: Kling animates a STILL, so only photos can seed it
+            // (a real video clip has nothing to animate — it's already footage).
+            const seedById = shot?.source_asset_id != null ? byId.get(shot.source_asset_id) : undefined;
+            const seedPhoto =
+              (seedById && seedById.media !== "video" ? seedById : undefined) ??
+              imageAssets[i] ??
+              imageAssets[i % Math.max(imageAssets.length, 1)];
+            if (seedPhoto) {
+              seedUrl = seedPhoto.local_path;
+              seedAssetId = seedPhoto.id;
             } else {
               seedUrl = (await generateImage(seedPrompt, MASTER_IMAGE_SIZE)).url;
             }

@@ -48,6 +48,9 @@ export interface Asset {
   media: "image" | "video";
   quality: string;
   notes: string | null;
+  /** Team characters only: 1 = this person has signed off on synthetic likeness
+   *  (their photo may be animated to speak a script). 0 = blocked. */
+  consent: number;
   created_at: string;
 }
 
