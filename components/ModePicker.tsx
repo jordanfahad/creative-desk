@@ -16,6 +16,7 @@ function options(isOptimize: boolean): { v: string; l: string }[] {
     ...(isOptimize ? [{ v: "passthrough", l: "size + brand only (no AI)" }] : []),
     { v: "animate", l: "animate / generate (AI)" },
     ...(!isOptimize ? [{ v: "reel", l: "cinematic reel — AI clips + captions + voiceover" }] : []),
+    { v: "studio", l: "studio finish — your own footage + synced captions" },
     { v: "montage", l: "photo montage — images → video (no AI credits)" },
   ];
 }

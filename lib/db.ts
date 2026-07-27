@@ -66,7 +66,7 @@ export interface Job {
   intent: "optimize" | "create";
   media: "image" | "video";
   platforms: string;
-  video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage" | "reel";
+  video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage" | "reel" | "studio";
   /** Reel: a CONSENTED team member whose portrait delivers the opening line. */
   speaker_asset_id: number | null;
   /** Reel house style (look/pacing/captions) — see lib/reelStyles.ts. */
@@ -286,6 +286,12 @@ export function isMontageJob(job: Pick<Job, "media" | "video_mode" | "carousel_c
 // a carousel). Distinct from montage — carousel_count is reused as the shot count.
 export function isReelJob(job: Pick<Job, "media" | "video_mode">): boolean {
   return job.media === "video" && job.video_mode === "reel";
+}
+
+// "Studio Finish": real footage the clinic filmed themselves, finished with
+// captions synced to what's actually said, plus brand, music and a CTA card.
+export function isStudioJob(job: Pick<Job, "media" | "video_mode">): boolean {
+  return job.media === "video" && job.video_mode === "studio";
 }
 
 export function jobPlatformKeys(job: Job): string[] {

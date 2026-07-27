@@ -12,6 +12,7 @@ import {
   jobInspirationIds,
   isMontageJob,
   isReelJob,
+  isStudioJob,
   listCharacters,
   listLocations,
 } from "@/lib/db";
@@ -86,6 +87,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
   const isVideoJob = job.media === "video";
   const isMontage = isMontageJob(job);
   const isReel = isReelJob(job);
+  const isStudio = isStudioJob(job);
 
   // Step numbers flow top-to-bottom over whichever cards this job type shows.
   let stepNo = 0;
@@ -258,10 +260,16 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
 
               {/* Real footage: an existing clip to enhance (optimize), or real
                   doctor/clinic video used as beats inside a reel (create). */}
-              {(isOptimize || isReel) && (
+              {(isOptimize || isReel || isStudio) && (
                 <div style={{ marginTop: 18, borderTop: "1px solid var(--line, #e5e7eb)", paddingTop: 14 }}>
                   <p className="small muted" style={{ marginTop: 0 }}>
-                    {isOptimize ? (
+                    {isStudio ? (
+                      <>
+                        <strong>Your footage.</strong> Upload the clip you filmed (phone video is fine).
+                        We transcribe what’s said and burn in <strong>captions synced to the speech</strong>,
+                        add your brand mark, music and CTA card, then cut it for every channel.
+                      </>
+                    ) : isOptimize ? (
                       <>
                         <strong>Or an existing clip.</strong> Upload a video to enhance, resize to every
                         channel, and logo-stamp (no montage).

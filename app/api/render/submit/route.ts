@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, readFile, unlink, mkdir } from "node:fs/promises";
+import { writeFile, readFile, unlink, mkdir, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -15,6 +15,7 @@ import {
   jobInspirationIds,
   isMontageJob,
   isReelJob,
+  isStudioJob,
 } from "@/lib/db";
 import { uploadBuffer, publicUrl } from "@/lib/storage";
 import { parseBrief, type Brief } from "@/lib/context";
@@ -24,7 +25,13 @@ import { assertSpeakerConsent } from "@/lib/talking";
 import { synthVoice } from "@/lib/voice";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
-import { buildMontageMaster, normalizeMotion, endCtaFor, muxMusicIntoVideo, type MontageShot } from "@/lib/montage";
+import {
+  buildMontageMaster, normalizeMotion, endCtaFor, muxMusicIntoVideo,
+  renderCaptionPng, overlayTimedCaptions, buildEndCardImage, appendEndCard, muxVoiceAndMusic,
+  type MontageShot,
+} from "@/lib/montage";
+import { reelStyle } from "@/lib/reelStyles";
+import { transcribeCues, toPhrases } from "@/lib/transcribe";
 import { platformOf, clampCarousel, reelShotCount, MASTER_IMAGE_SIZE, MASTER_ASPECT, type Platform, type LogoPosition } from "@/lib/platform";
 import { BASE_NEGATIVE } from "@/lib/style";
 
@@ -353,6 +360,88 @@ export async function POST(req: NextRequest) {
               await insertRender({ group: i, sourceAssetId: videoAssets[i].id, platform: platform.key, status: "failed", error: errMsg(e), meta: {} });
               results.push({ group: i, platform: platform.key, status: "failed", error: errMsg(e) });
             }
+          }
+        }
+      } else if (isStudioJob(job)) {
+        // STUDIO FINISH: the clinic's own footage, finished properly — captions
+        // synced to what's actually said, brand mark, soundtrack, CTA card, and
+        // one cut per channel. No AI imagery; the footage IS the content.
+        if (!videoAssets.length) {
+          return NextResponse.json({ error: "Upload the video you filmed — Studio Finish works on your own footage." }, { status: 400 });
+        }
+        const dir = join(tmpdir(), "creative-desk");
+        await mkdir(dir, { recursive: true });
+        const stMusicRaw = (job.music_track ?? "").trim();
+        const stMusic = stMusicRaw ? (stMusicRaw.startsWith("assets/") ? publicUrl(stMusicRaw) : stMusicRaw) : null;
+        const stStyle = reelStyle(job.reel_style);
+        const endCta = endCtaFor(job, brand);
+        const cardLogo = logoOpts.logoEnabled && logoOpts.logoPath ? (logoOpts.logoPath as string) : null;
+        const wantCard = Boolean(cardLogo) || Boolean((job.cta_text ?? "").trim());
+
+        // Transcribe ONCE (same speech for every channel).
+        let cues: { start: number; end: number; text: string }[] = [];
+        try {
+          const src = videoAssets[0].local_path;
+          const buf = Buffer.from(await (await fetch(src)).arrayBuffer());
+          cues = toPhrases(await transcribeCues(buf, "clip.mp4"));
+        } catch (e) {
+          console.error("[studio] transcription failed:", errMsg(e));
+        }
+
+        for (const platform of platforms) {
+          const uid = randomUUID().slice(0, 6);
+          const base = join(dir, `st-${jobId}-${platform.key}-${uid}.mp4`);
+          const capd = join(dir, `stc-${jobId}-${platform.key}-${uid}.mp4`);
+          const withCard = join(dir, `stx-${jobId}-${platform.key}-${uid}.mp4`);
+          const finalP = join(dir, `stf-${jobId}-${platform.key}-${uid}.mp4`);
+          const pngs: string[] = [];
+          try {
+            await finishVideo(videoAssets[0].local_path, base, {
+              platform,
+              ...logoOpts,
+              trim: platform.maxDurationSeconds ? { duration: platform.maxDurationSeconds } : undefined,
+            });
+            let cur = base;
+            if (cues.length) {
+              const timed: { png: string; start: number; end: number }[] = [];
+              for (let i = 0; i < cues.length; i++) {
+                const p = join(dir, `stp-${platform.key}-${uid}-${i}.png`);
+                await writeFile(p, await renderCaptionPng(cues[i].text, platform.w, platform.h, {
+                  upper: stStyle.caption.upper, size: stStyle.caption.size,
+                  position: stStyle.caption.position, fill: stStyle.caption.color, scrim: stStyle.caption.scrim,
+                }));
+                pngs.push(p);
+                timed.push({ png: p, start: cues[i].start, end: cues[i].end });
+              }
+              await overlayTimedCaptions(base, timed, capd);
+              cur = capd;
+            }
+            if (wantCard) {
+              const cardPng = await buildEndCardImage(platform.w, platform.h, {
+                logoUrl: cardLogo, bgColor: colors[0], cta: endCta.cta, subtext: endCta.sub,
+              });
+              const cardPath = join(dir, `stcard-${platform.key}-${uid}.jpg`);
+              await writeFile(cardPath, cardPng);
+              // appendEndCard is -an, so re-attach the real audio afterwards.
+              await appendEndCard(cur, cardPath, withCard, platform.w, platform.h, 3.0);
+              await muxVoiceAndMusic(withCard, null, stMusic, finalP).catch(async () => {
+                await copyFile(withCard, finalP);
+              });
+              await unlink(cardPath).catch(() => {});
+              cur = finalP;
+            } else if (stMusic) {
+              await muxMusicIntoVideo(cur, finalP, stMusic);
+              cur = finalP;
+            }
+            const buf = await readFile(cur);
+            const url = await uploadBuffer(`renders/${jobId}-0-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
+            await insertRender({ group: 0, sourceAssetId: videoAssets[0].id, platform: platform.key, status: "completed", result_url: url, meta: { mode: "studio", cues: cues.length } });
+            results.push({ group: 0, platform: platform.key, status: "completed" });
+          } catch (e) {
+            await insertRender({ group: 0, sourceAssetId: videoAssets[0].id, platform: platform.key, status: "failed", error: errMsg(e), meta: { mode: "studio" } });
+            results.push({ group: 0, platform: platform.key, status: "failed", error: errMsg(e) });
+          } finally {
+            for (const p of [base, capd, withCard, finalP, ...pngs]) await unlink(p).catch(() => {});
           }
         }
       } else if (isReelJob(job)) {

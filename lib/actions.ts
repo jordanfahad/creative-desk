@@ -17,7 +17,7 @@ import { STYLE_KEYS } from "./style";
 
 const INTENTS = new Set(["optimize", "create"]);
 const MEDIAS = new Set(["image", "video"]);
-const VIDEO_MODES = new Set(["passthrough", "ai_enhance", "animate", "generate", "montage", "reel"]);
+const VIDEO_MODES = new Set(["passthrough", "ai_enhance", "animate", "generate", "montage", "reel", "studio"]);
 const FUNNEL_GOALS = new Set(["awareness", "consideration", "conversion"]);
 const GUIDELINE_SOURCES = new Set(["creative", "ceo", "general"]);
 

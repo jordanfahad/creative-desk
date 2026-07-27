@@ -752,6 +752,49 @@ export async function overlayCaption(
 }
 
 /**
+ * Burn a SEQUENCE of timed captions onto a clip in ONE ffmpeg pass — used by
+ * Studio Finish, where captions track what the person is actually saying.
+ * Each cue is a pre-rendered transparent PNG with its own on/off window.
+ * Audio is copied through untouched (it's the real voice).
+ */
+export async function overlayTimedCaptions(
+  clipIn: string,
+  cues: Array<{ png: string; start: number; end: number }>,
+  clipOut: string,
+  fadeDur = 0.18,
+): Promise<void> {
+  if (!cues.length) throw new Error("overlayTimedCaptions: no cues");
+  const inputs: string[] = ["-i", clipIn];
+  const parts: string[] = [];
+  let last = "0:v";
+  cues.forEach((c, i) => {
+    const hold = Math.max(0.4, c.end - c.start);
+    const fd = Math.min(fadeDur, hold / 3);
+    inputs.push("-loop", "1", "-t", hold.toFixed(2), "-i", c.png);
+    const idx = i + 1;
+    parts.push(
+      `[${idx}:v]format=rgba,fade=t=in:st=0:d=${fd.toFixed(2)}:alpha=1,` +
+        `fade=t=out:st=${(hold - fd).toFixed(2)}:d=${fd.toFixed(2)}:alpha=1,` +
+        `setpts=PTS-STARTPTS+${c.start.toFixed(2)}/TB[c${idx}]`,
+    );
+    const out = i === cues.length - 1 ? "vout" : `ov${idx}`;
+    parts.push(
+      `[${last}][c${idx}]overlay=0:0:enable='between(t,${c.start.toFixed(2)},${(c.start + hold).toFixed(2)})':format=auto[${out}]`,
+    );
+    last = out;
+  });
+  await runFfmpeg([
+    "-y", ...inputs,
+    "-filter_complex", parts.join(";"),
+    "-map", "[vout]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-c:a", "copy",
+    "-movflags", "+faststart",
+    clipOut,
+  ]);
+}
+
+/**
  * Mux a soundtrack (preset key or uploaded-track URL) into a finished video,
  * fitted to its exact length with fades. Video stream is copied (no re-encode).
  */
