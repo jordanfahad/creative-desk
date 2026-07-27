@@ -13,6 +13,7 @@ import {
   muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion,
 } from "@/lib/montage";
 import { reelStyle } from "@/lib/reelStyles";
+import { assertSpeakerConsent } from "@/lib/talking";
 import { parseBrief } from "@/lib/context";
 import { synthVoice } from "@/lib/voice";
 import { platformOf, type LogoPosition, type Platform } from "@/lib/platform";
@@ -88,6 +89,20 @@ export async function POST(req: NextRequest) {
       // Reel shots are NOT fanned out per-platform: store the raw silent clip and
       // let the assembly step (after ALL shots finish) stitch the reel.
       if (isReelMaster(r)) {
+        // A talking beat is a synthetic likeness of a real person. Consent is
+        // re-read from the DB HERE, not trusted from enqueue time — if it was
+        // withdrawn (or the person removed) while the model was rendering, the
+        // clip must never reach a deliverable.
+        if (readMeta(r).talking) {
+          try {
+            if (r.source_asset_id == null) throw new Error("the speaker is no longer on record");
+            await assertSpeakerConsent(r.source_asset_id);
+          } catch (e) {
+            await fail(r.id, `Speaking consent was withdrawn — this clip was not delivered. ${errMsg(e)}`);
+            updated.push({ id: r.id, status: "failed" });
+            continue;
+          }
+        }
         await supabase
           .from("renders")
           .update({ status: "completed", result_url: masterUrl, updated_at: new Date().toISOString() })
@@ -312,6 +327,19 @@ async function maybeAssembleReel(job: Job) {
   // A terminally-failed shot can never be stitched — rollupReel marks the reel
   // failed; don't attempt (and don't deadlock waiting for it to "complete").
   if (masters.some((m) => m.status === "failed")) return;
+  // SECOND consent gate: a talking master may already be "completed" when
+  // consent is withdrawn, so re-check before stitching/publishing anything.
+  // Nothing containing a withdrawn likeness may become a deliverable.
+  for (const m of masters) {
+    if (!readMeta(m).talking) continue;
+    try {
+      if (m.source_asset_id == null) throw new Error("the speaker is no longer on record");
+      await assertSpeakerConsent(m.source_asset_id);
+    } catch (e) {
+      await fail(m.id, `Speaking consent was withdrawn — this reel was not assembled. ${errMsg(e)}`);
+      return;
+    }
+  }
   // Every shot must have a clip (completed, or shot-0 mid/stale-assembling). A
   // still-rendering shot (queued/processing) means we're not ready yet.
   const ready = masters.every(

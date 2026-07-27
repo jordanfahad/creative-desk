@@ -220,7 +220,40 @@ export async function setCharacterConsent(formData: FormData): Promise<void> {
   const { data: a } = await supabase.from("assets").select("kind").eq("id", id).maybeSingle();
   if (!a || a.kind !== "character") return; // people only
   await supabase.from("assets").update({ consent: on ? 1 : 0 }).eq("id", id);
+  if (!on) await stopTalkingRendersFor(id);
   revalidatePath("/brand");
+}
+
+/**
+ * Withdrawing consent must STOP work already in flight, not merely block new
+ * renders — otherwise a clip of that person could still finish and publish.
+ * Kills any in-flight talking master for them and clears them as a job speaker.
+ */
+async function stopTalkingRendersFor(assetId: number): Promise<void> {
+  const { data: rows } = await supabase
+    .from("renders")
+    .select("id, meta, job_id, status")
+    .eq("source_asset_id", assetId)
+    .in("status", ["queued", "processing", "finishing", "assembling", "completed"]);
+  const talking = (rows ?? []).filter((r) => {
+    try {
+      return Boolean(JSON.parse((r.meta as string) || "{}").talking);
+    } catch {
+      return false;
+    }
+  });
+  for (const r of talking) {
+    await supabase
+      .from("renders")
+      .update({
+        status: "failed",
+        error: "Speaking consent was withdrawn — this clip was stopped and not delivered.",
+        updated_at: now(),
+      })
+      .eq("id", r.id);
+  }
+  // Don't leave them selected as a future speaker either.
+  await supabase.from("jobs").update({ speaker_asset_id: null, updated_at: now() }).eq("speaker_asset_id", assetId);
 }
 
 export async function removeLibraryAsset(formData: FormData): Promise<void> {
@@ -229,6 +262,8 @@ export async function removeLibraryAsset(formData: FormData): Promise<void> {
   // Only a library asset (character/location) may be removed here — never a job creative.
   const { data: a } = await supabase.from("assets").select("local_path, kind").eq("id", id).maybeSingle();
   if (!a || !LIBRARY_KINDS.has(a.kind)) return;
+  // Removing a person revokes their likeness too — stop anything in flight.
+  if (a.kind === "character") await stopTalkingRendersFor(id);
   await supabase.from("assets").delete().eq("id", id);
   const k = pubKey(a.local_path);
   if (k) await supabase.storage.from(BUCKET).remove([k]);
