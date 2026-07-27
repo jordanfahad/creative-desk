@@ -554,6 +554,7 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
           hasBrief={!!brief}
           assetCount={assets.length}
           imageAssetCount={imageAssetCount}
+          videoAssetCount={videoAssets.length}
         />
       </div>
 

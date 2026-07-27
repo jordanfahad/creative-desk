@@ -752,6 +752,28 @@ export async function overlayCaption(
 }
 
 /**
+ * Pull a clip's own audio out to a standalone track, padded/trimmed to
+ * `seconds`. Needed because appendEndCard is video-only (-an): the real speech
+ * must be rescued BEFORE the card is attached and re-mixed afterwards, or the
+ * clinic's own voice is silently deleted from their footage.
+ * Returns null when the source has no audio stream.
+ */
+export async function extractAudioTrack(src: string, out: string, seconds: number): Promise<string | null> {
+  try {
+    await runFfmpeg([
+      "-y", "-i", src,
+      "-vn", "-map", "0:a:0",
+      "-af", `apad,atrim=0:${seconds.toFixed(3)},asetpts=N/SR/TB`,
+      "-c:a", "aac", "-b:a", "160k",
+      out,
+    ]);
+    return out;
+  } catch {
+    return null; // no audio track — silent footage is legitimate
+  }
+}
+
+/**
  * Burn a SEQUENCE of timed captions onto a clip in ONE ffmpeg pass — used by
  * Studio Finish, where captions track what the person is actually saying.
  * Each cue is a pre-rendered transparent PNG with its own on/off window.

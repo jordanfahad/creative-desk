@@ -13,9 +13,10 @@ interface Props {
   hasBrief: boolean;
   assetCount: number;
   imageAssetCount?: number;
+  videoAssetCount?: number;
 }
 
-export default function JobActions({ jobId, status, intent, media, videoMode, channels, hasBrief, assetCount, imageAssetCount }: Props) {
+export default function JobActions({ jobId, status, intent, media, videoMode, channels, hasBrief, assetCount, imageAssetCount, videoAssetCount }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -82,8 +83,9 @@ export default function JobActions({ jobId, status, intent, media, videoMode, ch
     if ((imageAssetCount ?? 0) === 0) reasons.push("add photos for the montage");
   } else if (isStudio) {
     // Studio Finish works on the clinic's OWN footage — the video is the
-    // content, so no AI brief is required, just a clip.
-    if (assetCount === 0) reasons.push("upload the video you filmed");
+    // content, so no AI brief is required, just a clip. Photos don't count:
+    // the render needs an actual video or it 400s.
+    if ((videoAssetCount ?? 0) === 0) reasons.push("upload the video you filmed");
   } else {
     if (intent === "create" && !hasBrief) reasons.push("optimize the prompt first");
     if (intent === "optimize" && assetCount === 0)

@@ -10,7 +10,7 @@ import { finishVideo } from "@/lib/finishVideo";
 import {
   buildEndCardImage, appendEndCard, endCtaFor, muxMusicIntoVideo,
   renderCaptionPng, overlayCaption, concatVideosXfade, assembleVoiceTrack,
-  muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion,
+  muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion, extractAudioTrack,
 } from "@/lib/montage";
 import { reelStyle } from "@/lib/reelStyles";
 import { assertSpeakerConsent } from "@/lib/talking";
@@ -464,22 +464,40 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
   await mkdir(dir, { recursive: true });
 
   // Synthesize the voiceover ONCE (dimension-independent) and reuse per platform.
+  // A TALKING beat is special: its lips were synced to a specific audio take, so
+  // we take the narration straight OFF that clip instead of re-synthesizing (a
+  // second take would drift out of sync, or go mute if VO were off).
   const voPaths: (string | null)[] = [];
+  for (let i = 0; i < masters.length; i++) {
+    if (!readMeta(masters[i]).talking) {
+      voPaths.push(null);
+      continue;
+    }
+    const p = join(dir, `talkvo-${i}.m4a`);
+    try {
+      const secs = await mediaDuration(masters[i].result_url as string);
+      voPaths[i] = await extractAudioTrack(masters[i].result_url as string, p, secs);
+    } catch (e) {
+      console.error("[reel] talking audio extract failed:", e instanceof Error ? e.message : String(e));
+      voPaths[i] = null;
+    }
+  }
   if (voEnabled) {
     for (let i = 0; i < masters.length; i++) {
+      if (voPaths[i]) continue; // talking beat already carries its real audio
       const line = (shotsMeta[i]?.voiceover ?? "").trim();
       if (!line) {
-        voPaths.push(null);
+        voPaths[i] = null;
         continue;
       }
       try {
         const mp3 = await synthVoice(line, job.vo_voice ?? undefined);
         const p = join(dir, `vo-${i}.mp3`);
         await writeFile(p, mp3);
-        voPaths.push(p);
+        voPaths[i] = p;
       } catch (e) {
         console.error("[reel] VO synth failed for shot", i, e instanceof Error ? e.message : String(e));
-        voPaths.push(null);
+        voPaths[i] = null;
       }
     }
   }
@@ -576,7 +594,9 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
         // 4 · build audio to the FULL (card-inclusive) duration and mux
         const fullSeconds = await mediaDuration(videoForAudio);
         let voTrack: string | null = null;
-        if (voEnabled && voPaths.some(Boolean)) {
+        // Build the track whenever ANY beat has audio — a talking beat carries
+        // the doctor's own delivery even when narration is switched off.
+        if (voPaths.some(Boolean)) {
           try {
             const vt = join(dir, `vot-${platform.key}-${uid}.m4a`);
             await assembleVoiceTrack(voPaths, offsets, fullSeconds, vt);

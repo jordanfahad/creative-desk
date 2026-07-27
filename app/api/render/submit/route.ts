@@ -28,6 +28,7 @@ import { finishVideo } from "@/lib/finishVideo";
 import {
   buildMontageMaster, normalizeMotion, endCtaFor, muxMusicIntoVideo,
   renderCaptionPng, overlayTimedCaptions, buildEndCardImage, appendEndCard, muxVoiceAndMusic,
+  extractAudioTrack, mediaDuration,
   type MontageShot,
 } from "@/lib/montage";
 import { reelStyle } from "@/lib/reelStyles";
@@ -381,9 +382,16 @@ export async function POST(req: NextRequest) {
         // Transcribe ONCE (same speech for every channel).
         let cues: { start: number; end: number; text: string }[] = [];
         try {
-          const src = videoAssets[0].local_path;
-          const buf = Buffer.from(await (await fetch(src)).arrayBuffer());
-          cues = toPhrases(await transcribeCues(buf, "clip.mp4"));
+          // Send AUDIO ONLY, not the whole MP4 — real phone footage easily
+          // exceeds the transcription upload limit, which previously meant the
+          // footage silently shipped with no captions at all.
+          const aud = join(dir, `stau-${jobId}-${randomUUID().slice(0, 6)}.m4a`);
+          const secs = await mediaDuration(videoAssets[0].local_path);
+          const got = await extractAudioTrack(videoAssets[0].local_path, aud, secs);
+          if (got) {
+            cues = toPhrases(await transcribeCues(await readFile(got), "clip.m4a"));
+            await unlink(aud).catch(() => {});
+          }
         } catch (e) {
           console.error("[studio] transcription failed:", errMsg(e));
         }
@@ -416,23 +424,41 @@ export async function POST(req: NextRequest) {
               await overlayTimedCaptions(base, timed, capd);
               cur = capd;
             }
+            // The clinic's REAL voice is the whole point of Studio Finish, so it
+            // must survive to the final file. appendEndCard is video-only (-an),
+            // and muxing music alone would overwrite the speech — so rescue the
+            // original audio first and mix the music UNDER it (ducked).
+            const voPath = join(dir, `stvo-${platform.key}-${uid}.m4a`);
+            let speech: string | null = null;
             if (wantCard) {
               const cardPng = await buildEndCardImage(platform.w, platform.h, {
                 logoUrl: cardLogo, bgColor: colors[0], cta: endCta.cta, subtext: endCta.sub,
               });
               const cardPath = join(dir, `stcard-${platform.key}-${uid}.jpg`);
               await writeFile(cardPath, cardPng);
-              // appendEndCard is -an, so re-attach the real audio afterwards.
               await appendEndCard(cur, cardPath, withCard, platform.w, platform.h, 3.0);
-              await muxVoiceAndMusic(withCard, null, stMusic, finalP).catch(async () => {
-                await copyFile(withCard, finalP);
-              });
+              // pad the speech to the CARD-INCLUSIVE length so -shortest can't clip the card
+              const fullSecs = await mediaDuration(withCard);
+              speech = await extractAudioTrack(cur, voPath, fullSecs);
               await unlink(cardPath).catch(() => {});
-              cur = finalP;
-            } else if (stMusic) {
-              await muxMusicIntoVideo(cur, finalP, stMusic);
-              cur = finalP;
+              cur = withCard;
             }
+            if (speech || stMusic) {
+              if (!speech && wantCard) {
+                // silent footage + card: music only (or leave silent)
+                if (stMusic) { await muxVoiceAndMusic(cur, null, stMusic, finalP); cur = finalP; }
+              } else if (speech) {
+                await muxVoiceAndMusic(cur, speech, stMusic, finalP);
+                cur = finalP;
+              } else if (stMusic) {
+                // no card: the clip still carries its own audio, so duck music under it
+                const secs = await mediaDuration(cur);
+                const own = await extractAudioTrack(cur, voPath, secs);
+                await muxVoiceAndMusic(cur, own, stMusic, finalP);
+                cur = finalP;
+              }
+            }
+            await unlink(voPath).catch(() => {});
             const buf = await readFile(cur);
             const url = await uploadBuffer(`renders/${jobId}-0-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
             await insertRender({ group: 0, sourceAssetId: videoAssets[0].id, platform: platform.key, status: "completed", result_url: url, meta: { mode: "studio", cues: cues.length } });

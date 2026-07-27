@@ -396,10 +396,12 @@ export async function uploadJobAsset(formData: FormData): Promise<void> {
   // matches the pipeline: photos → montage, a clip → enhance/animate. Don't
   // override an explicit AI choice (animate/generate) when photos are seeds.
   if (job.media === "video") {
-    // "reel" also consumes uploaded photos (real-doctor reels) — adding images
-    // must NOT flip a reel into a montage.
-    const aiMode = job.video_mode === "animate" || job.video_mode === "generate" || job.video_mode === "reel";
-    if (addedVideo) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
+    // "reel" and "studio" deliberately CONSUME uploaded media (real-doctor
+    // reels, the clinic's own footage), so uploading must never flip them to
+    // another mode — that silently made both features unreachable from the UI.
+    const consumesUploads = job.video_mode === "reel" || job.video_mode === "studio";
+    const aiMode = job.video_mode === "animate" || job.video_mode === "generate" || consumesUploads;
+    if (addedVideo && !consumesUploads) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
     else if (addedImage && !aiMode) update.video_mode = "montage";
     // Montage is single-output: never leave a stranded carousel_count>=2 (which
     // would make isMontageJob false and route it into the paid Kling path).
@@ -530,10 +532,12 @@ export async function attachJobAssets(
   // Source drives the video mode: photos → montage, a clip → enhance/animate;
   // don't override an explicit AI choice when photos are seeds.
   if (job.media === "video") {
-    // "reel" also consumes uploaded photos (real-doctor reels) — adding images
-    // must NOT flip a reel into a montage.
-    const aiMode = job.video_mode === "animate" || job.video_mode === "generate" || job.video_mode === "reel";
-    if (addedVideo) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
+    // "reel" and "studio" deliberately CONSUME uploaded media (real-doctor
+    // reels, the clinic's own footage), so uploading must never flip them to
+    // another mode — that silently made both features unreachable from the UI.
+    const consumesUploads = job.video_mode === "reel" || job.video_mode === "studio";
+    const aiMode = job.video_mode === "animate" || job.video_mode === "generate" || consumesUploads;
+    if (addedVideo && !consumesUploads) update.video_mode = job.intent === "optimize" ? "passthrough" : "animate";
     else if (addedImage && !aiMode) update.video_mode = "montage";
     // Montage is single-output: never leave a stranded carousel_count>=2 (which
     // would make isMontageJob false and route it into the paid Kling path).
