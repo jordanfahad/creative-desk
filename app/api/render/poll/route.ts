@@ -726,9 +726,16 @@ async function maybeFinishStudio(job: Job) {
 
     // Trim + crop + logo + every caption in ONE encode (two passes over a full
     // clip is what previously blew the function budget).
-    const visible = cues
-      .filter((c) => c.start < outSeconds - 0.2)
-      .slice(0, 24)
+    // Keep the graph small: every caption is a full-frame RGBA input, and a
+    // couple of dozen of them exhausts the function's memory. Take up to 8,
+    // SPREAD across the cut (not just the first few seconds) — a caption change
+    // every ~4s also reads better than rapid-fire text.
+    const inRange = cues.filter((c) => c.start < outSeconds - 0.2);
+    const MAX_CUES = 8;
+    const step = Math.max(1, Math.ceil(inRange.length / MAX_CUES));
+    const visible = inRange
+      .filter((_, i) => i % step === 0)
+      .slice(0, MAX_CUES)
       .map((c) => ({ ...c, end: Math.min(c.end, outSeconds) }));
     const timed: { png: string; start: number; end: number }[] = [];
     for (let i = 0; i < visible.length; i++) {
