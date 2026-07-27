@@ -690,6 +690,62 @@ export async function deleteProject(formData: FormData): Promise<void> {
   redirect("/projects");
 }
 
+/**
+ * Edit the SCRIPT of one beat — the on-screen caption and the spoken line —
+ * without touching anything else in the brief. Editing raw JSON was the only way
+ * before, which made customising a script needlessly hostile.
+ */
+export async function saveShotScript(formData: FormData): Promise<void> {
+  const jobId = Number(formData.get("job_id"));
+  const briefId = Number(formData.get("brief_id"));
+  const index = Number(formData.get("shot_index"));
+  if (!Number.isFinite(jobId) || !Number.isFinite(briefId) || !Number.isFinite(index)) return;
+  const caption = (formData.get("caption") ?? "").toString().trim().slice(0, 200);
+  const voiceover = (formData.get("voiceover") ?? "").toString().trim().slice(0, 600);
+
+  const { data: row } = await supabase.from("briefs").select("content").eq("id", briefId).maybeSingle();
+  if (!row) return;
+  let obj: { shots?: Array<Record<string, unknown>> };
+  try {
+    obj = JSON.parse(row.content as string);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(obj.shots) || !obj.shots[index]) return;
+  obj.shots[index] = { ...obj.shots[index], caption, voiceover };
+  await supabase.from("briefs").update({ content: JSON.stringify(obj), edited: 1 }).eq("id", briefId);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
+/** Edit the whole script in one save (all beats at once). */
+export async function saveScript(formData: FormData): Promise<void> {
+  const jobId = Number(formData.get("job_id"));
+  const briefId = Number(formData.get("brief_id"));
+  if (!Number.isFinite(jobId) || !Number.isFinite(briefId)) return;
+  const { data: row } = await supabase.from("briefs").select("content").eq("id", briefId).maybeSingle();
+  if (!row) return;
+  let obj: { shots?: Array<Record<string, unknown>>; post_caption?: string };
+  try {
+    obj = JSON.parse(row.content as string);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(obj.shots)) return;
+  obj.shots = obj.shots.map((s, i) => {
+    const cap = formData.get(`caption_${i}`);
+    const vo = formData.get(`voiceover_${i}`);
+    return {
+      ...s,
+      ...(cap !== null ? { caption: cap.toString().trim().slice(0, 200) } : {}),
+      ...(vo !== null ? { voiceover: vo.toString().trim().slice(0, 600) } : {}),
+    };
+  });
+  const post = formData.get("post_caption");
+  if (post !== null) obj.post_caption = post.toString().trim().slice(0, 600);
+  await supabase.from("briefs").update({ content: JSON.stringify(obj), edited: 1 }).eq("id", briefId);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
 // Choose which consented team member delivers the reel's opening line (or none).
 // Consent is re-checked at render time too — this only records the choice.
 export async function setJobSpeaker(formData: FormData): Promise<void> {

@@ -39,7 +39,7 @@ export const REEL_STYLES: ReelStyle[] = [
   },
   {
     key: "wellness",
-    label: "Wellness clinic — calm & editorial",
+    label: "Wellness clinic — calm & editorial (SAMA-style)",
     blurb:
       "Soft, airy and unhurried: muted warm neutrals, elegant lowercase captions, slow dissolves. Reads as a premium wellness brand.",
     // lifted blacks + gentle warmth + slight desaturation = soft editorial film
@@ -52,7 +52,7 @@ export const REEL_STYLES: ReelStyle[] = [
   },
   {
     key: "commercial",
-    label: "Friendly commercial — bright & clear",
+    label: "Friendly commercial — bright & clear (Aspen-style)",
     blurb:
       "Bright, upbeat and benefit-led with bold readable captions and snappy cuts. The classic high-clarity healthcare ad look.",
     grade: "eq=contrast=1.06:saturation=1.08:brightness=0.02",
@@ -64,7 +64,7 @@ export const REEL_STYLES: ReelStyle[] = [
   },
   {
     key: "luxe_warm",
-    label: "Warm luxe — rich & filmic",
+    label: "Warm luxe — rich & filmic (Gucci-style)",
     blurb:
       "Rich warm film grade with deep colour and generous type — opulent, tactile, fashion-house warmth.",
     grade: "eq=contrast=1.12:saturation=1.14,colorbalance=rs=0.06:rm=0.05:gh=-0.02:bh=-0.05",
@@ -76,7 +76,7 @@ export const REEL_STYLES: ReelStyle[] = [
   },
   {
     key: "mono_couture",
-    label: "Monochrome couture — timeless",
+    label: "Monochrome couture — timeless (Chanel-style)",
     blurb:
       "Black-and-white elegance with restrained centred type. Timeless, refined, unmistakably high-end.",
     grade: "hue=s=0,eq=contrast=1.16:brightness=0.02",
@@ -88,7 +88,7 @@ export const REEL_STYLES: ReelStyle[] = [
   },
   {
     key: "brutalist",
-    label: "High-fashion brutalist — stark & bold",
+    label: "High-fashion brutalist — stark & bold (Balenciaga-style)",
     blurb:
       "Cold desaturated grade, ALL-CAPS captions, hard fast cuts. Severe, modern, scroll-stopping.",
     grade: "eq=contrast=1.2:saturation=0.72:brightness=-0.02,colorbalance=bh=0.05:rh=-0.03",

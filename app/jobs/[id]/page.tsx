@@ -44,6 +44,7 @@ import { CharacterPicker } from "@/components/CharacterPicker";
 import { ModePicker } from "@/components/ModePicker";
 import { ReelStylePicker } from "@/components/ReelStylePicker";
 import { SpeakerPicker } from "@/components/SpeakerPicker";
+import { ScriptEditor } from "@/components/ScriptEditor";
 import { REEL_STYLES } from "@/lib/reelStyles";
 import { listConsentedSpeakers } from "@/lib/talking";
 
@@ -626,6 +627,26 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
             </div>
           </div>
         ))
+      )}
+
+      {/* ── Script editor: the words on screen and the words spoken ── */}
+      {brief && briefRow && isVideoJob && brief.shots.length > 0 && (
+        <>
+          <h2>{step()} · Script</h2>
+          <ScriptEditor
+            jobId={job.id}
+            briefId={briefRow.id}
+            speaking={Boolean(job.speaker_asset_id)}
+            postCaption={brief.post_caption ?? ""}
+            beats={brief.shots.map((s, i) => ({
+              index: i,
+              caption: s.caption ?? "",
+              voiceover: s.voiceover ?? "",
+              seconds: s.duration_seconds || 5,
+              scene: (s.prompt ?? "").split(/[.,]/)[0].slice(0, 70) || "scene",
+            }))}
+          />
+        </>
       )}
 
       {/* ── AI-optimized prompt (both intents) ── */}
