@@ -42,7 +42,9 @@ import { VoicePicker } from "@/components/VoicePicker";
 import { CharacterPicker } from "@/components/CharacterPicker";
 import { ModePicker } from "@/components/ModePicker";
 import { ReelStylePicker } from "@/components/ReelStylePicker";
+import { SpeakerPicker } from "@/components/SpeakerPicker";
 import { REEL_STYLES } from "@/lib/reelStyles";
+import { listConsentedSpeakers } from "@/lib/talking";
 
 export const dynamic = "force-dynamic";
 
@@ -167,6 +169,14 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
       }))
     : [];
   const attachedAssetIds = assets.map((a) => a.id);
+  // Only CONSENTED team members may be given a spoken line (re-checked at render).
+  const speakers = isReel
+    ? (await listConsentedSpeakers(job.project_id)).map((s) => ({
+        id: s.id,
+        name: s.filename || "Team member",
+        url: assetWebPath(s.local_path),
+      }))
+    : [];
 
   // Spend estimate: paid AI generations only — channel re-crops are free.
   const imageAssetCount = photoAssets.length;
@@ -288,6 +298,9 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
               {/* Voiceover is a reel-only layer (spoken narration baked into the reel). */}
               {isReel && (
                 <VoicePicker jobId={job.id} enabled={job.voiceover_enabled === 1} voice={job.vo_voice ?? ""} />
+              )}
+              {isReel && (
+                <SpeakerPicker jobId={job.id} speakers={speakers} current={job.speaker_asset_id ?? null} />
               )}
               {isReel && (
                 <ReelStylePicker

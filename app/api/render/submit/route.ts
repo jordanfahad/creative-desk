@@ -18,7 +18,10 @@ import {
 } from "@/lib/db";
 import { uploadBuffer, publicUrl } from "@/lib/storage";
 import { parseBrief, type Brief } from "@/lib/context";
-import { generateImage, editImage, enqueueVideo } from "@/lib/fal";
+import { generateImage, editImage, enqueueVideo, enqueueModel, uploadImageToFal } from "@/lib/fal";
+import { MODELS, talkingInput } from "@/lib/models";
+import { assertSpeakerConsent } from "@/lib/talking";
+import { synthVoice } from "@/lib/voice";
 import { finishImage } from "@/lib/finish";
 import { finishVideo } from "@/lib/finishVideo";
 import { buildMontageMaster, normalizeMotion, endCtaFor, muxMusicIntoVideo, type MontageShot } from "@/lib/montage";
@@ -378,10 +381,45 @@ export async function POST(req: NextRequest) {
           ? Math.min(Math.max(shots.length, 1), realAssets.length)
           : reelShotCount(job);
 
+        // OPTIONAL speaking beat: a CONSENTED team member delivers shot 0's line
+        // on camera. Enqueued like any other queued model, so the existing poll
+        // loop picks it up. Consent is verified inside renderTalkingClip's
+        // helpers — a non-consented person can never reach the model.
+        let speakingBeat = false;
+        if (job.speaker_asset_id) {
+          const line = (shots[0]?.voiceover ?? "").trim() || (job.brief_notes ?? "").trim();
+          try {
+            const speaker = await assertSpeakerConsent(job.speaker_asset_id);
+            if (!line) throw new Error("The brief has no opening line for them to say.");
+            const mp3 = await synthVoice(line, job.vo_voice ?? undefined);
+            const audioUrl = await uploadImageToFal(mp3, "audio/mpeg");
+            const spec = MODELS.talking;
+            const sub = await enqueueModel(
+              spec.id,
+              talkingInput({ imageUrl: speaker.local_path, audioUrl }),
+            );
+            await insertRender({
+              group: 0,
+              sourceAssetId: speaker.id,
+              platform: null,
+              status: "processing",
+              request_id: sub.requestId,
+              status_url: sub.model,
+              meta: { reel: true, shot: 0, of: n, talking: true, speaker: speaker.filename },
+            });
+            results.push({ group: 0, platform: null, status: "processing" });
+            speakingBeat = true;
+          } catch (e) {
+            // Consent (and any other) failure must be loud — never silently drop
+            // the speaker and render something the user didn't ask for.
+            return NextResponse.json({ error: errMsg(e) }, { status: 400 });
+          }
+        }
+
         // PRESERVE path (default whenever real material is attached).
         const preserve = reelHasReal && (job.motion_mode ?? "preserve") === "preserve";
         if (preserve) {
-          for (let i = 0; i < n; i++) {
+          for (let i = speakingBeat ? 1 : 0; i < n; i++) {
             const shot = shots[i] ?? shots[0];
             const a =
               (shot?.source_asset_id != null ? byId.get(shot.source_asset_id) : undefined) ??
@@ -406,7 +444,7 @@ export async function POST(req: NextRequest) {
           await supabase.from("jobs").update({ status: "submitted", updated_at: new Date().toISOString() }).eq("id", jobId);
           return NextResponse.json({ jobId, intent: job.intent, media: job.media, status: "submitted", submitted: results });
         }
-        for (let i = 0; i < n; i++) {
+        for (let i = speakingBeat ? 1 : 0; i < n; i++) {
           // Per-shot guard: a mid-loop enqueue failure records a FAILED master
           // (rollupReel then fails the reel cleanly) instead of throwing out of
           // the whole submit and stranding the shots already enqueued.

@@ -207,6 +207,22 @@ export async function uploadLibraryAsset(formData: FormData): Promise<void> {
   revalidatePath("/brand");
 }
 
+/**
+ * Record that a team member has signed off on SYNTHETIC LIKENESS — i.e. their
+ * photo may be animated to speak a script they did not record. Nothing renders a
+ * talking video without this; it is the product's consent gate, so it is only
+ * ever set deliberately, per person, by the account owner.
+ */
+export async function setCharacterConsent(formData: FormData): Promise<void> {
+  const id = Number(formData.get("asset_id"));
+  if (!Number.isFinite(id)) return;
+  const on = ["1", "true", "on"].includes((formData.get("consent") ?? "").toString().trim());
+  const { data: a } = await supabase.from("assets").select("kind").eq("id", id).maybeSingle();
+  if (!a || a.kind !== "character") return; // people only
+  await supabase.from("assets").update({ consent: on ? 1 : 0 }).eq("id", id);
+  revalidatePath("/brand");
+}
+
 export async function removeLibraryAsset(formData: FormData): Promise<void> {
   const id = Number(formData.get("asset_id"));
   if (!Number.isFinite(id)) return;
@@ -633,6 +649,28 @@ export async function deleteProject(formData: FormData): Promise<void> {
   }
   revalidatePath("/", "layout");
   redirect("/projects");
+}
+
+// Choose which consented team member delivers the reel's opening line (or none).
+// Consent is re-checked at render time too — this only records the choice.
+export async function setJobSpeaker(formData: FormData): Promise<void> {
+  const id = Number(formData.get("job_id"));
+  if (!Number.isFinite(id)) return;
+  const raw = (formData.get("speaker_asset_id") ?? "").toString().trim();
+  if (!raw) {
+    await supabase.from("jobs").update({ speaker_asset_id: null, updated_at: now() }).eq("id", id);
+    revalidatePath(`/jobs/${id}`);
+    return;
+  }
+  const assetId = Number(raw);
+  if (!Number.isFinite(assetId)) return;
+  const { data: a } = await supabase.from("assets").select("kind, consent").eq("id", assetId).maybeSingle();
+  if (!a || a.kind !== "character" || a.consent !== 1) return; // never store a non-consented speaker
+  await supabase
+    .from("jobs")
+    .update({ speaker_asset_id: assetId, voiceover_enabled: 1, updated_at: now() })
+    .eq("id", id);
+  revalidatePath(`/jobs/${id}`);
 }
 
 // Reel house style (look/pacing/captions) — auto-saved from a controlled picker.

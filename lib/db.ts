@@ -67,6 +67,8 @@ export interface Job {
   media: "image" | "video";
   platforms: string;
   video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage" | "reel";
+  /** Reel: a CONSENTED team member whose portrait delivers the opening line. */
+  speaker_asset_id: number | null;
   /** Reel house style (look/pacing/captions) — see lib/reelStyles.ts. */
   reel_style: string | null;
   /** Reel motion for REAL photos: "preserve" (Ken Burns, pixel-perfect) | "ai" (Kling). */

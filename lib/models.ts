@@ -40,6 +40,12 @@ export const MODELS = {
     id: process.env.FAL_MUSIC_MODEL || "fal-ai/minimax-music",
     result: "audio",
   },
+  // Still portrait + speech audio → that person speaking (lips, head, gestures).
+  // Verified working with a real team portrait; see talkingInput below.
+  talking: {
+    id: process.env.FAL_TALKING_MODEL || "veed/fabric-1.0",
+    result: "video",
+  },
 } satisfies Record<string, ModelSpec>;
 
 export type ModelKey = keyof typeof MODELS;
@@ -80,6 +86,23 @@ export function veo3Input(opts: {
  */
 export function lipsyncInput(opts: { videoUrl: string; audioUrl: string }): Record<string, unknown> {
   return { video_url: opts.videoUrl, audio_url: opts.audioUrl };
+}
+
+/**
+ * Talking portrait: a REAL person's photo + speech audio → them delivering it.
+ * The audio must be a public url (upload the TTS mp3 via uploadImageToFal first).
+ * ONLY ever call this for a person who has consented to synthetic likeness.
+ */
+export function talkingInput(opts: {
+  imageUrl: string;
+  audioUrl: string;
+  resolution?: string;
+}): Record<string, unknown> {
+  return {
+    image_url: opts.imageUrl,
+    audio_url: opts.audioUrl,
+    resolution: opts.resolution || "720p",
+  };
 }
 
 /**

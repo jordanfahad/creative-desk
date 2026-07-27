@@ -7,6 +7,7 @@ import {
   setDefaultLogo,
   uploadLibraryAsset,
   removeLibraryAsset,
+  setCharacterConsent,
   addGuideline,
   uploadGuideline,
   toggleGuideline,
@@ -196,7 +197,17 @@ export default async function BrandPage() {
                   <span className="small">
                     <strong>{c.filename}</strong> <span className="muted">· {c.media}</span>
                   </span>
+                  {c.consent === 1 && <span className="badge done">can speak</span>}
                 </div>
+                {/* Consent gate: a talking video can ONLY be made for someone
+                    ticked here. Tick it once you hold their written sign-off. */}
+                <form action={setCharacterConsent} style={{ marginBottom: 6 }}>
+                  <input type="hidden" name="asset_id" value={c.id} />
+                  <input type="hidden" name="consent" value={c.consent === 1 ? "0" : "1"} />
+                  <button className={`btn ${c.consent === 1 ? "secondary" : ""} sm`} type="submit">
+                    {c.consent === 1 ? "Revoke speaking consent" : "Mark consented to speak"}
+                  </button>
+                </form>
                 <form action={removeLibraryAsset}>
                   <input type="hidden" name="asset_id" value={c.id} />
                   <button className="btn danger sm" type="submit">
@@ -207,6 +218,12 @@ export default async function BrandPage() {
             ))}
           </div>
         )}
+        <p className="small muted" style={{ marginTop: 0 }}>
+          <strong>“Can speak”</strong> means this person has given you <strong>written consent</strong>{" "}
+          for their photo to be animated saying scripted lines. Only tick it once you hold that
+          sign-off — a talking video will not render for anyone unticked. Doctors should also approve
+          each script, since they are professionally accountable for what they appear to say.
+        </p>
         <form action={uploadLibraryAsset}>
           <input type="hidden" name="category" value="character" />
           <div className="grid cols-2">

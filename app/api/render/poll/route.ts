@@ -486,8 +486,10 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
             }
           } else {
             // A real uploaded clip can be any length — trim it to a beat so one
-            // long phone video doesn't swallow the whole reel.
-            const trim = mmeta.clip ? { duration: BEAT_SECONDS } : undefined;
+            // long phone video doesn't swallow the whole reel. A TALKING beat is
+            // never trimmed: its lips are synced to the whole spoken line, and
+            // the voiceover track plays that same line in full.
+            const trim = mmeta.clip && !mmeta.talking ? { duration: BEAT_SECONDS } : undefined;
             await finishVideo(src, fin, { platform, ...logoOpts, trim });
             if (style.grade) {
               const g = join(dir, `g-${platform.key}-${i}-${uid}.mp4`);
