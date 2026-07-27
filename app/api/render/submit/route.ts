@@ -400,86 +400,21 @@ export async function POST(req: NextRequest) {
           console.error("[studio] transcription failed:", errMsg(e));
         }
 
-        for (const platform of platforms) {
-          const uid = randomUUID().slice(0, 6);
-          const base = join(dir, `st-${jobId}-${platform.key}-${uid}.mp4`);
-          const capd = join(dir, `stc-${jobId}-${platform.key}-${uid}.mp4`);
-          const withCard = join(dir, `stx-${jobId}-${platform.key}-${uid}.mp4`);
-          const finalP = join(dir, `stf-${jobId}-${platform.key}-${uid}.mp4`);
-          const pngs: string[] = [];
-          try {
-            // Always trim: the channel cap when there is one, else our own cap.
-            const outSeconds = Math.min(platform.maxDurationSeconds || STUDIO_MAX_SECONDS, STUDIO_MAX_SECONDS, srcSeconds);
-            await finishVideo(videoAssets[0].local_path, base, {
-              platform,
-              ...logoOpts,
-              trim: { duration: outSeconds },
-            });
-            let cur = base;
-            // Only captions that fall inside the trimmed output — otherwise the
-            // filter graph grows with cues that can never be seen.
-            const visible = cues.filter((c) => c.start < outSeconds - 0.2).slice(0, 40)
-              .map((c) => ({ ...c, end: Math.min(c.end, outSeconds) }));
-            if (visible.length) {
-              const timed: { png: string; start: number; end: number }[] = [];
-              for (let i = 0; i < visible.length; i++) {
-                const p = join(dir, `stp-${platform.key}-${uid}-${i}.png`);
-                await writeFile(p, await renderCaptionPng(visible[i].text, platform.w, platform.h, {
-                  upper: stStyle.caption.upper, size: stStyle.caption.size,
-                  position: stStyle.caption.position, fill: stStyle.caption.color, scrim: stStyle.caption.scrim,
-                }));
-                pngs.push(p);
-                timed.push({ png: p, start: visible[i].start, end: visible[i].end });
-              }
-              await overlayTimedCaptions(base, timed, capd);
-              cur = capd;
-            }
-            // The clinic's REAL voice is the whole point of Studio Finish, so it
-            // must survive to the final file. appendEndCard is video-only (-an),
-            // and muxing music alone would overwrite the speech — so rescue the
-            // original audio first and mix the music UNDER it (ducked).
-            const voPath = join(dir, `stvo-${platform.key}-${uid}.m4a`);
-            let speech: string | null = null;
-            if (wantCard) {
-              const cardPng = await buildEndCardImage(platform.w, platform.h, {
-                logoUrl: cardLogo, bgColor: colors[0], cta: endCta.cta, subtext: endCta.sub,
-              });
-              const cardPath = join(dir, `stcard-${platform.key}-${uid}.jpg`);
-              await writeFile(cardPath, cardPng);
-              await appendEndCard(cur, cardPath, withCard, platform.w, platform.h, 3.0);
-              // pad the speech to the CARD-INCLUSIVE length so -shortest can't clip the card
-              const fullSecs = await mediaDuration(withCard);
-              speech = await extractAudioTrack(cur, voPath, fullSecs);
-              await unlink(cardPath).catch(() => {});
-              cur = withCard;
-            }
-            if (speech || stMusic) {
-              if (!speech && wantCard) {
-                // silent footage + card: music only (or leave silent)
-                if (stMusic) { await muxVoiceAndMusic(cur, null, stMusic, finalP); cur = finalP; }
-              } else if (speech) {
-                await muxVoiceAndMusic(cur, speech, stMusic, finalP);
-                cur = finalP;
-              } else if (stMusic) {
-                // no card: the clip still carries its own audio, so duck music under it
-                const secs = await mediaDuration(cur);
-                const own = await extractAudioTrack(cur, voPath, secs);
-                await muxVoiceAndMusic(cur, own, stMusic, finalP);
-                cur = finalP;
-              }
-            }
-            await unlink(voPath).catch(() => {});
-            const buf = await readFile(cur);
-            const url = await uploadBuffer(`renders/${jobId}-0-${platform.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
-            await insertRender({ group: 0, sourceAssetId: videoAssets[0].id, platform: platform.key, status: "completed", result_url: url, meta: { mode: "studio", cues: cues.length } });
-            results.push({ group: 0, platform: platform.key, status: "completed" });
-          } catch (e) {
-            await insertRender({ group: 0, sourceAssetId: videoAssets[0].id, platform: platform.key, status: "failed", error: errMsg(e), meta: { mode: "studio" } });
-            results.push({ group: 0, platform: platform.key, status: "failed", error: errMsg(e) });
-          } finally {
-            for (const p of [base, capd, withCard, finalP, ...pngs]) await unlink(p).catch(() => {});
-          }
-        }
+        // Finishing every channel here would exceed the serverless budget (a
+        // real 71s clip already did). Record the transcript and hand the heavy
+        // per-channel work to the poll route, which does ONE channel per
+        // invocation and self-heals — the same pattern reels use.
+        await insertRender({
+          group: 0,
+          sourceAssetId: videoAssets[0].id,
+          platform: null,
+          status: "completed",
+          result_url: videoAssets[0].local_path,
+          meta: { studio: true, cues, maxSeconds: STUDIO_MAX_SECONDS },
+        });
+        await supabase.from("jobs").update({ status: "submitted", updated_at: new Date().toISOString() }).eq("id", jobId);
+        return NextResponse.json({ jobId, intent: job.intent, media: job.media, status: "submitted", submitted: [{ group: 0, platform: null, status: "processing" }] });
+
       } else if (isReelJob(job)) {
         // Cinematic reel: enqueue N textless Kling shots (one per storyboard
         // beat). These masters are NOT fanned out per-platform — the poll route

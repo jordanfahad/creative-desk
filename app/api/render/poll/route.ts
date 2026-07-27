@@ -3,14 +3,14 @@ import { readFile, writeFile, unlink, mkdir, rm, rename } from "node:fs/promises
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { supabase, getJob, getBrandKit, getLogo, getLatestBrief, jobPlatformKeys, isReelJob, type Render, type Job } from "@/lib/db";
+import { supabase, getJob, getBrandKit, getLogo, getLatestBrief, jobPlatformKeys, isReelJob, isStudioJob, type Render, type Job } from "@/lib/db";
 import { uploadBuffer, publicUrl } from "@/lib/storage";
 import { videoStatus, videoResultUrl } from "@/lib/fal";
 import { finishVideo } from "@/lib/finishVideo";
 import {
   buildEndCardImage, appendEndCard, endCtaFor, muxMusicIntoVideo,
   renderCaptionPng, overlayCaption, concatVideosXfade, assembleVoiceTrack,
-  muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion, extractAudioTrack,
+  muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion, extractAudioTrack, overlayTimedCaptions,
 } from "@/lib/montage";
 import { reelStyle } from "@/lib/reelStyles";
 import { assertSpeakerConsent } from "@/lib/talking";
@@ -143,6 +143,9 @@ export async function POST(req: NextRequest) {
     if (job && isReelJob(job)) {
       await maybeAssembleReel(job);
       await rollupReel(job);
+    } else if (job && isStudioJob(job)) {
+      await maybeFinishStudio(job);
+      await rollupJob(jobId);
     } else {
       await rollupJob(jobId);
     }
@@ -632,6 +635,145 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
     }
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * STUDIO FINISH — finish the clinic's own footage for ONE channel per poll
+ * invocation. Doing every channel in one request blew the serverless budget, so
+ * each tick claims the master, delivers a single channel, and releases; the
+ * client's 10s poll drains the rest and the whole thing self-heals.
+ */
+async function maybeFinishStudio(job: Job) {
+  const { data } = await supabase
+    .from("renders")
+    .select("*")
+    .eq("job_id", job.id)
+    .is("platform", null)
+    .order("id", { ascending: false })
+    .limit(1);
+  const master = ((data as Render[]) ?? [])[0];
+  if (!master || !readMeta(master).studio || !master.result_url) return;
+
+  const platforms = jobPlatformKeys(job).map(platformOf);
+  const { data: done } = await supabase
+    .from("renders")
+    .select("platform")
+    .eq("job_id", job.id)
+    .eq("status", "completed")
+    .not("platform", "is", null);
+  const doneKeys = new Set((done ?? []).map((d) => d.platform as string));
+  const next = platforms.find((p) => !doneKeys.has(p.key));
+  if (!next) return; // every channel delivered
+
+  // single-owner claim (same stale-reclaim idiom as the reel assembler)
+  const staleBefore = new Date(Date.now() - ASSEMBLY_STALE_MS).toISOString();
+  const { data: claimed } = await supabase
+    .from("renders")
+    .update({ status: "assembling", updated_at: new Date().toISOString() })
+    .eq("id", master.id)
+    .or(`status.eq.completed,and(status.eq.assembling,updated_at.lt.${staleBefore})`)
+    .select("id");
+  if (!claimed?.length) return;
+
+  const meta = readMeta(master);
+  const cues = (Array.isArray(meta.cues) ? meta.cues : []) as Array<{ start: number; end: number; text: string }>;
+  const maxSeconds = Number(meta.maxSeconds) || 60;
+  const brand = await getBrandKit(job.project_id);
+  let logoPath = brand?.logo_path ?? null;
+  if (job.logo_id) {
+    const l = await getLogo(job.logo_id);
+    if (l) logoPath = l.path;
+  }
+  const logoOpts = {
+    logoPath,
+    logoEnabled: job.logo_enabled === 1,
+    logoPosition: (job.logo_position as LogoPosition) || "bottom-right",
+  };
+  let colors: string[] = [];
+  try {
+    const v = JSON.parse(brand?.colors || "[]");
+    if (Array.isArray(v)) colors = v.map(String);
+  } catch {
+    /* ignore */
+  }
+  const style = reelStyle(job.reel_style);
+  const endCta = endCtaFor(job, brand);
+  const cardLogo = logoOpts.logoEnabled && logoOpts.logoPath ? (logoOpts.logoPath as string) : null;
+  const wantCard = Boolean(cardLogo) || Boolean((job.cta_text ?? "").trim());
+  const musicRaw = (job.music_track ?? "").trim();
+  const music = musicRaw ? (musicRaw.startsWith("assets/") ? publicUrl(musicRaw) : musicRaw) : null;
+
+  const dir = join(tmpdir(), `cd-studio-${job.id}-${randomUUID().slice(0, 6)}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const uid = randomUUID().slice(0, 6);
+    const base = join(dir, `b-${uid}.mp4`);
+    const capd = join(dir, `c-${uid}.mp4`);
+    const withCard = join(dir, `w-${uid}.mp4`);
+    const finalP = join(dir, `f-${uid}.mp4`);
+    const voP = join(dir, `v-${uid}.m4a`);
+    const src = master.result_url as string;
+    const srcSecs = await mediaDuration(src).catch(() => maxSeconds);
+    const outSeconds = Math.min(next.maxDurationSeconds || maxSeconds, maxSeconds, srcSecs);
+
+    await finishVideo(src, base, { platform: next, ...logoOpts, trim: { duration: outSeconds } });
+    let cur = base;
+    const visible = cues
+      .filter((c) => c.start < outSeconds - 0.2)
+      .slice(0, 40)
+      .map((c) => ({ ...c, end: Math.min(c.end, outSeconds) }));
+    if (visible.length) {
+      const timed: { png: string; start: number; end: number }[] = [];
+      for (let i = 0; i < visible.length; i++) {
+        const p = join(dir, `p-${uid}-${i}.png`);
+        await writeFile(p, await renderCaptionPng(visible[i].text, next.w, next.h, {
+          upper: style.caption.upper, size: style.caption.size,
+          position: style.caption.position, fill: style.caption.color, scrim: style.caption.scrim,
+        }));
+        timed.push({ png: p, start: visible[i].start, end: visible[i].end });
+      }
+      await overlayTimedCaptions(base, timed, capd);
+      cur = capd;
+    }
+    // The real voice must survive the (video-only) end card.
+    let speech: string | null = null;
+    if (wantCard) {
+      const cardPng = await buildEndCardImage(next.w, next.h, {
+        logoUrl: cardLogo, bgColor: colors[0], cta: endCta.cta, subtext: endCta.sub,
+      });
+      const cardPath = join(dir, `card-${uid}.jpg`);
+      await writeFile(cardPath, cardPng);
+      await appendEndCard(cur, cardPath, withCard, next.w, next.h, 3.0);
+      speech = await extractAudioTrack(cur, voP, await mediaDuration(withCard));
+      cur = withCard;
+    } else {
+      speech = await extractAudioTrack(cur, voP, await mediaDuration(cur));
+    }
+    if (speech || music) {
+      await muxVoiceAndMusic(cur, speech, music, finalP);
+      cur = finalP;
+    }
+    const buf = await readFile(cur);
+    const url = await uploadBuffer(`renders/${job.id}-0-${next.key}-${randomUUID().slice(0, 6)}.mp4`, buf, "video/mp4");
+    await supabase.from("renders").insert({
+      job_id: job.id, brief_id: master.brief_id, shot_index: 0,
+      source_asset_id: master.source_asset_id, platform: next.key,
+      status: "completed", result_url: url, attempts: 0,
+      meta: JSON.stringify({ mode: "studio", cues: visible.length }),
+    });
+  } catch (e) {
+    console.error("[studio] finish failed:", e instanceof Error ? (e.stack ?? e.message) : String(e));
+    await supabase.from("renders").insert({
+      job_id: job.id, brief_id: master.brief_id, shot_index: 0, platform: next.key,
+      status: "failed", error: errMsg(e), attempts: 0, meta: "{}",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+    await supabase
+      .from("renders")
+      .update({ status: "completed", updated_at: new Date().toISOString() })
+      .eq("id", master.id);
   }
 }
 
