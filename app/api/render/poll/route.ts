@@ -467,11 +467,20 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
           const mmeta = readMeta(masters[i]);
           const fin = join(dir, `s-${platform.key}-${i}-${uid}.mp4`);
           if (mmeta.still) {
+            const kb = join(dir, `kb-${platform.key}-${i}-${uid}.mp4`);
             await buildKenBurnsClip(
-              src, fin, platform.w, platform.h, 5,
+              src, kb, platform.w, platform.h, 5,
               normalizeMotion(typeof mmeta.motion === "string" ? mmeta.motion : null, i),
               style.grade,
             );
+            // Ken Burns writes raw frames — run it through finishVideo so the
+            // corner brand mark is stamped exactly like every other clip.
+            if (logoOpts.logoEnabled && logoOpts.logoPath) {
+              await finishVideo(kb, fin, { platform, ...logoOpts });
+              await unlink(kb).catch(() => {});
+            } else {
+              await rename(kb, fin);
+            }
           } else {
             await finishVideo(src, fin, { platform, ...logoOpts });
             if (style.grade) {
