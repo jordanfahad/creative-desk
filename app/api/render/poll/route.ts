@@ -10,8 +10,9 @@ import { finishVideo } from "@/lib/finishVideo";
 import {
   buildEndCardImage, appendEndCard, endCtaFor, muxMusicIntoVideo,
   renderCaptionPng, overlayCaption, concatVideosXfade, assembleVoiceTrack,
-  muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion, extractAudioTrack, overlayTimedCaptions,
+  muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion, extractAudioTrack, overlayTimedCaptions, buildStudioChannel,
 } from "@/lib/montage";
+import { loadLogoBuffer } from "@/lib/finish";
 import { reelStyle } from "@/lib/reelStyles";
 import { assertSpeakerConsent } from "@/lib/talking";
 import { parseBrief } from "@/lib/context";
@@ -723,25 +724,35 @@ async function maybeFinishStudio(job: Job) {
     const srcSecs = await mediaDuration(src).catch(() => maxSeconds);
     const outSeconds = Math.min(next.maxDurationSeconds || maxSeconds, maxSeconds, srcSecs);
 
-    await finishVideo(src, base, { platform: next, ...logoOpts, trim: { duration: outSeconds } });
-    let cur = base;
+    // Trim + crop + logo + every caption in ONE encode (two passes over a full
+    // clip is what previously blew the function budget).
     const visible = cues
       .filter((c) => c.start < outSeconds - 0.2)
-      .slice(0, 24) // each overlay adds graph + encode cost
+      .slice(0, 24)
       .map((c) => ({ ...c, end: Math.min(c.end, outSeconds) }));
-    if (visible.length) {
-      const timed: { png: string; start: number; end: number }[] = [];
-      for (let i = 0; i < visible.length; i++) {
-        const p = join(dir, `p-${uid}-${i}.png`);
-        await writeFile(p, await renderCaptionPng(visible[i].text, next.w, next.h, {
-          upper: style.caption.upper, size: style.caption.size,
-          position: style.caption.position, fill: style.caption.color, scrim: style.caption.scrim,
-        }));
-        timed.push({ png: p, start: visible[i].start, end: visible[i].end });
-      }
-      await overlayTimedCaptions(base, timed, capd);
-      cur = capd;
+    const timed: { png: string; start: number; end: number }[] = [];
+    for (let i = 0; i < visible.length; i++) {
+      const p = join(dir, `p-${uid}-${i}.png`);
+      await writeFile(p, await renderCaptionPng(visible[i].text, next.w, next.h, {
+        upper: style.caption.upper, size: style.caption.size,
+        position: style.caption.position, fill: style.caption.color, scrim: style.caption.scrim,
+      }));
+      timed.push({ png: p, start: visible[i].start, end: visible[i].end });
     }
+    let logoLocal: string | null = null;
+    if (logoOpts.logoEnabled && logoOpts.logoPath) {
+      try {
+        logoLocal = join(dir, `logo-${uid}.png`);
+        await writeFile(logoLocal, await loadLogoBuffer(logoOpts.logoPath));
+      } catch {
+        logoLocal = null;
+      }
+    }
+    await buildStudioChannel(src, base, {
+      w: next.w, h: next.h, seconds: outSeconds, cues: timed,
+      logoPath: logoLocal, logoPosition: logoOpts.logoPosition, grade: style.grade,
+    });
+    let cur = base;
     // The real voice must survive the (video-only) end card.
     let speech: string | null = null;
     if (wantCard) {

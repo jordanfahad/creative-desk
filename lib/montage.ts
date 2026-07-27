@@ -752,6 +752,88 @@ export async function overlayCaption(
 }
 
 /**
+ * STUDIO FINISH, one pass: trim + scale/crop to the channel + corner logo + the
+ * whole timed-caption sequence in a SINGLE ffmpeg graph.
+ *
+ * Doing the finish and the caption overlay as two passes meant encoding the full
+ * clip twice, which is what pushed a channel past the serverless budget. Audio is
+ * copied through untouched (it's the real voice).
+ */
+export async function buildStudioChannel(
+  src: string,
+  out: string,
+  opts: {
+    w: number;
+    h: number;
+    seconds: number;
+    cues: Array<{ png: string; start: number; end: number }>;
+    logoPath?: string | null;
+    logoPosition?: string;
+    grade?: string;
+    fadeDur?: number;
+  },
+): Promise<void> {
+  const { w, h, seconds, cues, logoPath, logoPosition = "top-right", grade = "", fadeDur = 0.18 } = opts;
+  const inputs: string[] = ["-t", seconds.toFixed(2), "-i", src];
+  const parts: string[] = [];
+
+  // 1 · base: cover-crop to the channel frame, then optional grade
+  parts.push(
+    `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${FPS}` +
+      (grade ? `,${grade}` : "") +
+      `,format=yuv420p[base]`,
+  );
+  let last = "base";
+  let idx = 1;
+
+  // 2 · corner brand mark (whole duration)
+  if (logoPath) {
+    inputs.push("-i", logoPath);
+    const margin = Math.round(w * 0.04);
+    const lw = Math.round(w * 0.18);
+    const pos: Record<string, string> = {
+      "top-right": `W-w-${margin}:${margin}`,
+      "top-left": `${margin}:${margin}`,
+      "bottom-right": `W-w-${margin}:H-h-${margin}`,
+      "bottom-left": `${margin}:H-h-${margin}`,
+    };
+    parts.push(`[${idx}:v]scale=${lw}:-1[lg]`);
+    parts.push(`[${last}][lg]overlay=${pos[logoPosition] ?? pos["top-right"]}[wl]`);
+    last = "wl";
+    idx++;
+  }
+
+  // 3 · every caption, each on its own fade window
+  cues.forEach((c, i) => {
+    const hold = Math.max(0.4, c.end - c.start);
+    const fd = Math.min(fadeDur, hold / 3);
+    inputs.push("-loop", "1", "-t", hold.toFixed(2), "-i", c.png);
+    parts.push(
+      `[${idx}:v]format=rgba,fade=t=in:st=0:d=${fd.toFixed(2)}:alpha=1,` +
+        `fade=t=out:st=${(hold - fd).toFixed(2)}:d=${fd.toFixed(2)}:alpha=1,` +
+        `setpts=PTS-STARTPTS+${c.start.toFixed(2)}/TB[cc${i}]`,
+    );
+    const o = i === cues.length - 1 ? "vout" : `st${i}`;
+    parts.push(
+      `[${last}][cc${i}]overlay=0:0:enable='between(t,${c.start.toFixed(2)},${(c.start + hold).toFixed(2)})':format=auto[${o}]`,
+    );
+    last = o;
+    idx++;
+  });
+  if (last !== "vout") parts.push(`[${last}]null[vout]`);
+
+  await runFfmpeg([
+    "-y", ...inputs,
+    "-filter_complex", parts.join(";"),
+    "-map", "[vout]", "-map", "0:a?",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "160k",
+    "-movflags", "+faststart",
+    out,
+  ]);
+}
+
+/**
  * Pull a clip's own audio out to a standalone track, padded/trimmed to
  * `seconds`. Needed because appendEndCard is video-only (-an): the real speech
  * must be rescued BEFORE the card is attached and re-mixed afterwards, or the
