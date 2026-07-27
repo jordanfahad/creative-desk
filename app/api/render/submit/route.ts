@@ -380,14 +380,18 @@ export async function POST(req: NextRequest) {
         const wantCard = Boolean(cardLogo) || Boolean((job.cta_text ?? "").trim());
 
         // Transcribe ONCE (same speech for every channel).
+        // Hard length cap: this branch renders every channel synchronously, so an
+        // untrimmed long upload blows the serverless budget and the job dies
+        // mid-render. Social cuts are short anyway.
+        const STUDIO_MAX_SECONDS = 60;
+        const srcSeconds = await mediaDuration(videoAssets[0].local_path).catch(() => STUDIO_MAX_SECONDS);
         let cues: { start: number; end: number; text: string }[] = [];
         try {
           // Send AUDIO ONLY, not the whole MP4 — real phone footage easily
           // exceeds the transcription upload limit, which previously meant the
           // footage silently shipped with no captions at all.
           const aud = join(dir, `stau-${jobId}-${randomUUID().slice(0, 6)}.m4a`);
-          const secs = await mediaDuration(videoAssets[0].local_path);
-          const got = await extractAudioTrack(videoAssets[0].local_path, aud, secs);
+          const got = await extractAudioTrack(videoAssets[0].local_path, aud, Math.min(srcSeconds, STUDIO_MAX_SECONDS));
           if (got) {
             cues = toPhrases(await transcribeCues(await readFile(got), "clip.m4a"));
             await unlink(aud).catch(() => {});
@@ -404,22 +408,28 @@ export async function POST(req: NextRequest) {
           const finalP = join(dir, `stf-${jobId}-${platform.key}-${uid}.mp4`);
           const pngs: string[] = [];
           try {
+            // Always trim: the channel cap when there is one, else our own cap.
+            const outSeconds = Math.min(platform.maxDurationSeconds || STUDIO_MAX_SECONDS, STUDIO_MAX_SECONDS, srcSeconds);
             await finishVideo(videoAssets[0].local_path, base, {
               platform,
               ...logoOpts,
-              trim: platform.maxDurationSeconds ? { duration: platform.maxDurationSeconds } : undefined,
+              trim: { duration: outSeconds },
             });
             let cur = base;
-            if (cues.length) {
+            // Only captions that fall inside the trimmed output — otherwise the
+            // filter graph grows with cues that can never be seen.
+            const visible = cues.filter((c) => c.start < outSeconds - 0.2).slice(0, 40)
+              .map((c) => ({ ...c, end: Math.min(c.end, outSeconds) }));
+            if (visible.length) {
               const timed: { png: string; start: number; end: number }[] = [];
-              for (let i = 0; i < cues.length; i++) {
+              for (let i = 0; i < visible.length; i++) {
                 const p = join(dir, `stp-${platform.key}-${uid}-${i}.png`);
-                await writeFile(p, await renderCaptionPng(cues[i].text, platform.w, platform.h, {
+                await writeFile(p, await renderCaptionPng(visible[i].text, platform.w, platform.h, {
                   upper: stStyle.caption.upper, size: stStyle.caption.size,
                   position: stStyle.caption.position, fill: stStyle.caption.color, scrim: stStyle.caption.scrim,
                 }));
                 pngs.push(p);
-                timed.push({ png: p, start: cues[i].start, end: cues[i].end });
+                timed.push({ png: p, start: visible[i].start, end: visible[i].end });
               }
               await overlayTimedCaptions(base, timed, capd);
               cur = capd;
