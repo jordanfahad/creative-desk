@@ -383,7 +383,7 @@ export async function POST(req: NextRequest) {
         // Hard length cap: this branch renders every channel synchronously, so an
         // untrimmed long upload blows the serverless budget and the job dies
         // mid-render. Social cuts are short anyway.
-        const STUDIO_MAX_SECONDS = 60;
+        const STUDIO_MAX_SECONDS = 30;
         const srcSeconds = await mediaDuration(videoAssets[0].local_path).catch(() => STUDIO_MAX_SECONDS);
         let cues: { start: number; end: number; text: string }[] = [];
         try {

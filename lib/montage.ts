@@ -809,7 +809,10 @@ export async function overlayTimedCaptions(
     "-y", ...inputs,
     "-filter_complex", parts.join(";"),
     "-map", "[vout]", "-map", "0:a?",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    // INTERMEDIATE pass (the card/mux still follow), so favour speed — this runs
+    // inside a serverless budget and dozens of overlays are expensive. A low CRF
+    // keeps generational loss invisible despite the fast preset.
+    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18", "-pix_fmt", "yuv420p",
     "-c:a", "copy",
     "-movflags", "+faststart",
     clipOut,

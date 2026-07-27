@@ -310,6 +310,9 @@ async function deliveredReelPlatforms(jobId: number): Promise<Set<string>> {
 // One reel beat. Real uploaded clips are trimmed to this so a long phone video
 // can't swallow the reel; Ken Burns stills are built at this length too.
 const BEAT_SECONDS = 5;
+// Studio Finish: hard ceiling per channel. Finishing one channel is several full
+// re-encodes; 60s exceeded the 300s function budget on real footage.
+const STUDIO_CHANNEL_MAX_SECONDS = 30;
 const MAX_ASSEMBLY_ATTEMPTS = 4;
 // A crashed assembly can't run its release, leaving shot-0 stuck "assembling".
 // Any claim older than this window (well beyond the 300s function budget) is
@@ -678,7 +681,10 @@ async function maybeFinishStudio(job: Job) {
 
   const meta = readMeta(master);
   const cues = (Array.isArray(meta.cues) ? meta.cues : []) as Array<{ start: number; end: number; text: string }>;
-  const maxSeconds = Number(meta.maxSeconds) || 60;
+  // Each channel costs several full re-encodes (finish → caption overlays → card
+  // → audio mux). A 60s cut blew the serverless budget in practice, and a social
+  // cut is short anyway — 30s keeps every channel comfortably inside one tick.
+  const maxSeconds = Math.min(Number(meta.maxSeconds) || 30, STUDIO_CHANNEL_MAX_SECONDS);
   const brand = await getBrandKit(job.project_id);
   let logoPath = brand?.logo_path ?? null;
   if (job.logo_id) {
@@ -721,7 +727,7 @@ async function maybeFinishStudio(job: Job) {
     let cur = base;
     const visible = cues
       .filter((c) => c.start < outSeconds - 0.2)
-      .slice(0, 40)
+      .slice(0, 24) // each overlay adds graph + encode cost
       .map((c) => ({ ...c, end: Math.min(c.end, outSeconds) }));
     if (visible.length) {
       const timed: { png: string; start: number; end: number }[] = [];
