@@ -41,6 +41,8 @@ import { MusicPicker } from "@/components/MusicPicker";
 import { VoicePicker } from "@/components/VoicePicker";
 import { CharacterPicker } from "@/components/CharacterPicker";
 import { ModePicker } from "@/components/ModePicker";
+import { ReelStylePicker } from "@/components/ReelStylePicker";
+import { REEL_STYLES } from "@/lib/reelStyles";
 
 export const dynamic = "force-dynamic";
 
@@ -277,6 +279,15 @@ export default async function JobDetail({ params }: { params: Promise<{ id: stri
               {/* Voiceover is a reel-only layer (spoken narration baked into the reel). */}
               {isReel && (
                 <VoicePicker jobId={job.id} enabled={job.voiceover_enabled === 1} voice={job.vo_voice ?? ""} />
+              )}
+              {isReel && (
+                <ReelStylePicker
+                  jobId={job.id}
+                  styles={REEL_STYLES.map((s) => ({ key: s.key, label: s.label, blurb: s.blurb }))}
+                  current={job.reel_style ?? "auto"}
+                  motionMode={job.motion_mode ?? "preserve"}
+                  hasPhotos={photoAssets.length > 0}
+                />
               )}
 
               <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>

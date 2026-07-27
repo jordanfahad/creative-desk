@@ -2,6 +2,7 @@ import { z } from "zod";
 import { getBrandKit, listGuidelines, getAssetsByIds, jobInspirationIds, isMontageJob, isReelJob, type Asset, type Job } from "./db";
 import { styleGuidance, styleLabel, BASE_NEGATIVE } from "./style";
 import { clampCarousel, reelShotCount } from "./platform";
+import { reelStyle } from "./reelStyles";
 
 // ── The context store ────────────────────────────────────────────────
 // "Give the model the guidelines once" = store once (brand_kit + guidelines),
@@ -286,6 +287,14 @@ export function briefSystemPrompt(
     `# VISUAL STYLE: ${styleLabel(job.style)}`,
     styleGuidance(job.style),
     "Apply this style consistently across every shot while staying on-brand.",
+    ...(isReel && (job.reel_style ?? "auto") !== "auto"
+      ? [
+          "",
+          `# REEL HOUSE STYLE: ${reelStyle(job.reel_style).label}`,
+          reelStyle(job.reel_style).promptGuidance,
+          "The finished reel is graded and typeset to this style — write imagery that suits it.",
+        ]
+      : []),
     "",
     ...(inspiration.length
       ? [

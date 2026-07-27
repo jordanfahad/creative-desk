@@ -375,6 +375,33 @@ export async function POST(req: NextRequest) {
         const n = reelHasPhotos
           ? Math.min(Math.max(shots.length, 1), imageAssets.length)
           : reelShotCount(job);
+
+        // PRESERVE path (default for real photos): don't send the photo through
+        // an AI video model at all — the assembler moves the camera over the REAL
+        // pixels (Ken Burns), so faces, uniforms and the real embroidered logo
+        // stay pixel-perfect. Free, instant, and nothing to poll.
+        const preserve = reelHasPhotos && (job.motion_mode ?? "preserve") === "preserve";
+        if (preserve) {
+          for (let i = 0; i < n; i++) {
+            const shot = shots[i] ?? shots[0];
+            const a =
+              (shot?.source_asset_id != null ? byId.get(shot.source_asset_id) : undefined) ??
+              imageAssets[i] ??
+              imageAssets[i % imageAssets.length];
+            await insertRender({
+              group: i,
+              sourceAssetId: a.id,
+              platform: null,
+              status: "completed",
+              result_url: a.local_path,
+              meta: { reel: true, shot: i, of: n, still: true, motion: normalizeMotion(shot?.motion, i) },
+            });
+            results.push({ group: i, platform: null, status: "completed" });
+          }
+          // masters are already complete — the poll route assembles on next tick
+          await supabase.from("jobs").update({ status: "submitted", updated_at: new Date().toISOString() }).eq("id", jobId);
+          return NextResponse.json({ jobId, intent: job.intent, media: job.media, status: "submitted", submitted: results });
+        }
         for (let i = 0; i < n; i++) {
           // Per-shot guard: a mid-loop enqueue failure records a FAILED master
           // (rollupReel then fails the reel cleanly) instead of throwing out of

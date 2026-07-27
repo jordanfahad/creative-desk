@@ -12,6 +12,7 @@ import { uploadBuffer, uploadPrivate, PRIVATE_BUCKET, publicUrl } from "./storag
 import { parseBrief } from "./context";
 import { extractPdfText } from "./pdf";
 import { PLATFORMS, LOGO_POSITIONS, defaultPlatforms, clampCarousel, reelShotCount } from "./platform";
+import { REEL_STYLE_KEYS } from "./reelStyles";
 import { STYLE_KEYS } from "./style";
 
 const INTENTS = new Set(["optimize", "create"]);
@@ -632,6 +633,30 @@ export async function deleteProject(formData: FormData): Promise<void> {
   }
   revalidatePath("/", "layout");
   redirect("/projects");
+}
+
+// Reel house style (look/pacing/captions) — auto-saved from a controlled picker.
+export async function setJobReelStyle(formData: FormData): Promise<void> {
+  const id = Number(formData.get("job_id"));
+  if (!Number.isFinite(id)) return;
+  const raw = (formData.get("reel_style") ?? "").toString();
+  const style = REEL_STYLE_KEYS.includes(raw) ? raw : "auto";
+  await supabase.from("jobs").update({ reel_style: style, updated_at: now() }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
+}
+
+// How a reel animates REAL photos: "preserve" = a real camera move over the
+// actual pixels (Ken Burns) so faces/uniforms/logos stay pixel-perfect and it
+// costs nothing; "ai" = an AI video model adds lifelike motion but repaints
+// every frame, which garbles fine embroidery and small text.
+const MOTION_MODES = new Set(["preserve", "ai"]);
+export async function setJobMotionMode(formData: FormData): Promise<void> {
+  const id = Number(formData.get("job_id"));
+  if (!Number.isFinite(id)) return;
+  const raw = (formData.get("motion_mode") ?? "").toString();
+  if (!MOTION_MODES.has(raw)) return;
+  await supabase.from("jobs").update({ motion_mode: raw, updated_at: now() }).eq("id", id);
+  revalidatePath(`/jobs/${id}`);
 }
 
 // Auto-save the video mode on its own (a controlled client picker) so it can't

@@ -64,6 +64,10 @@ export interface Job {
   media: "image" | "video";
   platforms: string;
   video_mode: "passthrough" | "ai_enhance" | "animate" | "generate" | "montage" | "reel";
+  /** Reel house style (look/pacing/captions) — see lib/reelStyles.ts. */
+  reel_style: string | null;
+  /** Reel motion for REAL photos: "preserve" (Ken Burns, pixel-perfect) | "ai" (Kling). */
+  motion_mode: string | null;
   /** Cinematic reel: bake an AI voiceover into the reel (0/1). */
   voiceover_enabled: number;
   /** OpenAI TTS voice for the reel voiceover (e.g. "alloy"); null = default. */

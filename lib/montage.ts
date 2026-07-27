@@ -559,12 +559,111 @@ export async function appendEndCard(
   ]);
 }
 
+/**
+ * Turn a REAL photo into a cinematic clip by moving the camera over the ACTUAL
+ * pixels (Ken Burns) — nothing is regenerated. This is what preserves a real
+ * person's face and the real embroidered logo on a uniform perfectly; an AI
+ * image-to-video model repaints every frame and turns fine text into mush.
+ * Costs nothing and takes seconds. `grade` is an optional colour-grade filter.
+ */
+export async function buildKenBurnsClip(
+  imageUrl: string,
+  outputPath: string,
+  w: number,
+  h: number,
+  seconds = 5,
+  motion: MontageMotion = "zoom-in",
+  grade = "",
+): Promise<void> {
+  const dir = join(tmpdir(), `cd-kb-${randomUUID().slice(0, 8)}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    // Normalize + upscale so the zoom never softens: work at 2x the target.
+    // CENTRE crop — a portrait's subject sits centre-frame, and sharp's
+    // "attention" heuristic can latch onto background bokeh and shove the person
+    // out of frame. Predictable beats clever here.
+    const buf = await fetchImage(imageUrl);
+    const src = join(dir, "src.jpg");
+    await writeFile(
+      src,
+      await sharp(buf)
+        .rotate()
+        .resize(w * 2, h * 2, { fit: "cover", position: "centre" })
+        .jpeg({ quality: 92 })
+        .toBuffer(),
+    );
+
+    const frames = Math.round(seconds * FPS);
+    const Z = 1.12; // total travel — subtle and premium, never a lurch
+    // zoompan works on the upscaled frame, then we scale down to the platform size.
+    let zExpr: string;
+    let xExpr: string;
+    let yExpr: string;
+    switch (motion) {
+      case "zoom-out":
+        zExpr = `'if(eq(on,0),${Z},max(zoom-${(Z - 1) / frames},1))'`;
+        xExpr = "'iw/2-(iw/zoom/2)'";
+        yExpr = "'ih/2-(ih/zoom/2)'";
+        break;
+      case "pan-left":
+        zExpr = `'${Z}'`;
+        xExpr = `'(iw-iw/zoom)*(1-on/${frames})'`;
+        yExpr = "'ih/2-(ih/zoom/2)'";
+        break;
+      case "pan-right":
+        zExpr = `'${Z}'`;
+        xExpr = `'(iw-iw/zoom)*(on/${frames})'`;
+        yExpr = "'ih/2-(ih/zoom/2)'";
+        break;
+      default: // zoom-in
+        zExpr = `'min(zoom+${(Z - 1) / frames},${Z})'`;
+        xExpr = "'iw/2-(iw/zoom/2)'";
+        yExpr = "'ih/2-(ih/zoom/2)'";
+    }
+
+    const chain = [
+      `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=${frames}:s=${w * 2}x${h * 2}:fps=${FPS}`,
+      `scale=${w}:${h}`,
+      "setsar=1",
+      ...(grade ? [grade] : []),
+      "format=yuv420p",
+    ].join(",");
+
+    await runFfmpeg([
+      "-y",
+      "-loop", "1", "-t", seconds.toFixed(2), "-i", src,
+      "-vf", chain,
+      "-frames:v", String(frames),
+      "-an",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart",
+      outputPath,
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** Apply a colour grade to an existing clip (style look). */
+export async function gradeClip(inputPath: string, outputPath: string, grade: string): Promise<void> {
+  await runFfmpeg([
+    "-y", "-i", inputPath,
+    "-vf", `${grade},format=yuv420p`,
+    "-c:a", "copy",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    outputPath,
+  ]);
+}
+
 // ── kinetic captions (burned onto video clips) ───────────────────────────────
 
 export interface CaptionOpts {
   fill?: string; // text color (default white)
   position?: "lower" | "center"; // vertical placement (default lower-third)
   scrim?: boolean; // legibility gradient behind the text (default true)
+  upper?: boolean; // ALL-CAPS (house styles)
+  size?: number; // cap height as a fraction of frame width (default 0.062)
 }
 
 /**
@@ -575,7 +674,9 @@ export interface CaptionOpts {
  * the type to fit the safe width. Empty text → a fully transparent PNG (no-op).
  */
 export async function renderCaptionPng(text: string, w: number, h: number, opts: CaptionOpts = {}): Promise<Buffer> {
-  const clean = (text ?? "").trim();
+  // Uppercasing is Latin-only — Arabic has no case and must not be touched.
+  const raw = (text ?? "").trim();
+  const clean = opts.upper && !AR_RE.test(raw) ? raw.toUpperCase() : raw;
   const fill = /^#[0-9a-fA-F]{3,6}$/.test(opts.fill ?? "") ? (opts.fill as string) : "#ffffff";
   const scrim = opts.scrim !== false;
   const pos = opts.position ?? "lower";
@@ -591,7 +692,8 @@ export async function renderCaptionPng(text: string, w: number, h: number, opts:
   const maxW = w * 0.86;
 
   // Fit-to-width: start bold, shrink so the widest line fits the safe box.
-  let fontSize = Math.round(w * 0.062);
+  const sizeFrac = opts.size && opts.size > 0.02 && opts.size < 0.2 ? opts.size : 0.062;
+  let fontSize = Math.round(w * sizeFrac);
   const widest = () => Math.max(...rawLines.map((ln) => lineWidth(ln, fontSize)));
   if (widest() > maxW) fontSize = Math.max(Math.floor(w * 0.03), Math.floor((fontSize * maxW) / widest()));
   const lineHeight = Math.round(fontSize * 1.16);

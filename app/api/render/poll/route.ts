@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile, writeFile, unlink, mkdir, rm } from "node:fs/promises";
+import { readFile, writeFile, unlink, mkdir, rm, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -10,8 +10,9 @@ import { finishVideo } from "@/lib/finishVideo";
 import {
   buildEndCardImage, appendEndCard, endCtaFor, muxMusicIntoVideo,
   renderCaptionPng, overlayCaption, concatVideosXfade, assembleVoiceTrack,
-  muxVoiceAndMusic, mediaDuration,
+  muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion,
 } from "@/lib/montage";
+import { reelStyle } from "@/lib/reelStyles";
 import { parseBrief } from "@/lib/context";
 import { synthVoice } from "@/lib/voice";
 import { platformOf, type LogoPosition, type Platform } from "@/lib/platform";
@@ -422,6 +423,7 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
     /* ignore */
   }
   const endCta = endCtaFor(job, brand);
+  const style = reelStyle(job.reel_style);
   const cardLogo = logoOpts.logoEnabled && logoOpts.logoPath ? (logoOpts.logoPath as string) : null;
   const musicRaw = (job.music_track ?? "").trim();
   const musicChoice = musicRaw ? (musicRaw.startsWith("assets/") ? publicUrl(musicRaw) : musicRaw) : null;
@@ -455,16 +457,47 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
     for (const platform of platforms) {
       const uid = randomUUID().slice(0, 6);
       try {
-        // 1 · finish each shot to platform dims, then burn its caption
+        // 1 · build each shot at platform dims, then burn its caption.
+        //     A "still" master is a REAL photo — move the camera over the actual
+        //     pixels (Ken Burns) so the real face/uniform/logo stay pixel-perfect.
+        //     A video master is finished (crop + corner logo) as usual.
         const shotClips: string[] = [];
         for (let i = 0; i < masters.length; i++) {
           const src = masters[i].result_url as string;
+          const mmeta = readMeta(masters[i]);
           const fin = join(dir, `s-${platform.key}-${i}-${uid}.mp4`);
-          await finishVideo(src, fin, { platform, ...logoOpts });
+          if (mmeta.still) {
+            await buildKenBurnsClip(
+              src, fin, platform.w, platform.h, 5,
+              normalizeMotion(typeof mmeta.motion === "string" ? mmeta.motion : null, i),
+              style.grade,
+            );
+          } else {
+            await finishVideo(src, fin, { platform, ...logoOpts });
+            if (style.grade) {
+              const g = join(dir, `g-${platform.key}-${i}-${uid}.mp4`);
+              try {
+                await gradeClip(fin, g, style.grade);
+                await unlink(fin).catch(() => {});
+                await rename(g, fin);
+              } catch (e) {
+                console.error("[reel] grade failed:", e instanceof Error ? e.message : String(e));
+              }
+            }
+          }
           const caption = (shotsMeta[i]?.caption ?? "").trim();
           if (caption) {
             const png = join(dir, `cap-${platform.key}-${i}-${uid}.png`);
-            await writeFile(png, await renderCaptionPng(caption, platform.w, platform.h));
+            await writeFile(
+              png,
+              await renderCaptionPng(caption, platform.w, platform.h, {
+                upper: style.caption.upper,
+                size: style.caption.size,
+                position: style.caption.position,
+                fill: style.caption.color,
+                scrim: style.caption.scrim,
+              }),
+            );
             const capped = join(dir, `sc-${platform.key}-${i}-${uid}.mp4`);
             await overlayCaption(fin, png, capped, { fadeInAt: 0.35 });
             shotClips.push(capped);
@@ -474,7 +507,7 @@ async function assembleReel(job: Job, masters: Render[], platforms: Platform[]) 
         }
         // 2 · concat with crossfades (returns per-shot offsets for VO alignment)
         const silent = join(dir, `reel-${platform.key}-${uid}.mp4`);
-        const { offsets } = await concatVideosXfade(shotClips, silent, platform.w, platform.h, 0.5);
+        const { offsets } = await concatVideosXfade(shotClips, silent, platform.w, platform.h, style.crossfade);
 
         // 3 · append the CTA end-card (silent; appendEndCard is -an). Audio is
         //     built to the card-inclusive length next so music/VO span the card.
