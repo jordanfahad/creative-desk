@@ -2,11 +2,11 @@
 // Kept in the repo (not the DB) deliberately: a brief is a versioned artefact —
 // it should be reviewable in a diff and travel with the deploy that created it.
 //
-// VOLUME MODEL. A sprint this size only works as a SYSTEM, not 85 unrelated
-// ideas: a small number of MASTERS (designed from scratch) and many VARIANTS
-// derived from them (per clinic, per offer, per language, per cutdown). The
-// planned-hours figure below is computed from that split, so the page can never
-// promise capacity the schedule doesn't support.
+// VOLUME MODEL. A sprint this size only works as a SYSTEM, not as dozens of
+// unrelated ideas: a small number of MASTERS (designed from scratch) and many
+// VARIANTS derived from them (per clinic, per offer, per language, per cutdown).
+// Totals are computed from the concept list, so the page always reflects the
+// actual brief rather than a number someone typed.
 
 export type Tier = "master" | "variant";
 
@@ -32,13 +32,11 @@ export interface DesignerBrief {
   slug: string;
   name: string;
   dates: string;
-  hours: number;
   channels: string;
   bias: string;
   uploadPrefix: string;
   clinics: string[];
   intro: string[];
-  rates: Array<{ type: string; each: string }>;
   lanes: BriefLane[];
   specs: string[];
   rules: string[];
@@ -46,14 +44,6 @@ export interface DesignerBrief {
   done: string[];
   reference: string[];
 }
-
-// Hours per deliverable, by kind and tier. A master is designed; a variant is
-// derived from a master that already exists.
-const RATE: Record<string, Record<Tier, number>> = {
-  video: { master: 2.0, variant: 0.5 },
-  static: { master: 0.7, variant: 0.2 },
-  gbp: { master: 0.4, variant: 0.2 },
-};
 
 const CLINICS = ["Dental Nation Al Wasl", "Dr Tosun Dental Clinic", "Al Maher Clinic"];
 
@@ -119,26 +109,55 @@ const HASHID: DesignerBrief = {
   slug: "hashid",
   name: "Hashid",
   dates: "28–30 July 2026 (3 days)",
-  hours: 45,
   channels: "Social organic · Social paid · Google Business Profile",
   bias: "Video-heavy",
   uploadPrefix: "deliveries/Hashid_2026-07-28",
   clinics: CLINICS,
   intro: [
-    "TARGET: 30 videos · 40 statics · 15 GBP posts (85 deliverables) across 5 lanes and 3 clinics.",
-    "This only fits 45 hours as a SYSTEM. Build a small number of masters properly, then derive the rest: 10 video masters + 20 derivative cuts, 10 static masters + 30 variants, and 15 GBP posts (5 lanes × 3 clinics). A derivative is a hook swap, a clinic-tagged version, a cutdown or an Arabic version — NOT a new idea from scratch. If you treat all 85 as net-new concepts this is a 120-hour job and will not land.",
-    "Ratio crops (9:16 / 1:1 / 4:5) are exports, not deliverables — they are expected with every concept and are not counted in the 85.",
-    "Every deliverable must state the offer, the price and one clear action. Recent paid leads converted badly — many were wrong or unreachable contacts — so creative should QUALIFY rather than maximise clicks: be explicit about what the offer is, what it costs and which clinic it is at.",
-    "Lanes are ordered by live paid spend: E, D and J carry the ArabyAds campaign and come first. C and B support them. If time runs short, cut derivatives from the bottom of that order — never ship a weak master.",
-  ],
-  rates: [
-    { type: "Video master (designed from scratch, 15–30s vertical)", each: "~2 h" },
-    { type: "Video derivative (hook swap / clinic tag / cutdown / AR)", each: "~30 min" },
-    { type: "Static master (the layout everything else inherits)", each: "~40 min" },
-    { type: "Static variant (clinic, offer, language)", each: "~12 min" },
-    { type: "Google Business Profile post", each: "~12 min" },
+    "Work as a SYSTEM, not as a list of unrelated ideas. Build a small number of MASTERS properly, then derive the rest: per lane, 2 video masters + 4 derivative cuts, 2 static masters + 6 variants, and 1 GBP post per clinic. A derivative is a hook swap, a clinic-tagged version, a cutdown or an Arabic version — not a new idea from scratch.",
+    "Ratio crops (9:16 / 1:1 / 4:5) are exports, not deliverables — they are expected with every concept and are not counted.",
+    "Every OFFER deliverable must state the offer, the price and one clear action. Recent paid leads converted badly — many were wrong or unreachable contacts — so creative should QUALIFY rather than maximise clicks: be explicit about what the offer is, what it costs and which clinic it is at.",
+    "Lanes are ordered by live paid spend: E, D and J carry the ArabyAds campaign and come first. C and B support them. Lane A (brand awareness) is separate — it carries no price and exists to be shared.",
   ],
   lanes: [
+    // Brand awareness sits OUTSIDE the offer system: no price, no lane template.
+    // Its whole job is to be shared — DM shares are the number one Instagram
+    // ranking signal, and a share reaches people paid never touches.
+    {
+      key: "A",
+      name: "Brand awareness — viral / trending",
+      offer: "No price, no hard CTA — Dental Nation (Al Wasl, main branch)",
+      landing: "https://www.dentalnation.com/en",
+      priority: "Organic — reach & shares",
+      direction:
+        "Trend-native, scroll-stopping, made to be SENT to a friend. No offer, no price, no hard sell — just the brand being worth watching. Generate freely with your own AI stack (Seedance, Higgsfield, etc.); brand-safe means no medical claims, no before/after promises, no unnatural teeth. Close on the brand mark only.",
+      concepts: [
+        {
+          ref: "A-V1",
+          kind: "video",
+          tier: "master",
+          title: "ASMR / satisfying macro",
+          note: "Extreme close-ups, glossy textures, no talking — built for sound-on and for looping. The existing DN SOS macro stills (tooth-in-locket, egg-crack, candle) are exactly this register and are in the pack.",
+          count: 1,
+        },
+        {
+          ref: "A-V2",
+          kind: "video",
+          tier: "master",
+          title: "POV / relatable trend format",
+          note: "\"POV: you finally stopped hiding your smile.\" Ride a current audio and cut pattern — the share is the goal, so it must land in the first 2 seconds.",
+          count: 1,
+        },
+        {
+          ref: "A-V3",
+          kind: "video",
+          tier: "master",
+          title: "Surreal brand film",
+          note: "One striking visual metaphor for confidence, cinematic and strange enough to stop a scroll. Hero piece — treat it as the brand's calling card.",
+          count: 1,
+        },
+      ],
+    },
     lane(
       "E", "Glow Up (whitening)", "The DN Glow Up — from AED 1,699",
       "https://www.dentalnation.com/en/glow-up", "Paid — highest value",
@@ -217,11 +236,12 @@ const HASHID: DesignerBrief = {
     "Keep logo, price and CTA inside the safe areas on every crop",
     "Deliver source masters (project files + fonts + music licences) in _source/",
     "Brand kit, logos, characters and clinic photography are on the main Jobs Pack page — reuse them rather than sourcing stock",
+    "Generate freely with your own AI stack (Seedance, Higgsfield, etc.) — especially for Lane A. Brand-safe means no medical claims, no before/after promises, no unnaturally white teeth, and the real logo only (never an AI-drawn one)",
   ],
   schedule: [
-    { day: "Day 1 — 28 Jul", focus: "Brand + landing pages. Build Lane E and D masters (4 video, 4 static) and lock the template system.", target: "8 masters" },
-    { day: "Day 2 — 29 Jul", focus: "Lane J and C masters, then derive Lane E + D variants and GBP.", target: "~35 deliverables" },
-    { day: "Day 3 — 30 Jul", focus: "Lane B masters, remaining derivatives, all GBP, exports and handover.", target: "~42 deliverables" },
+    { day: "Day 1 — 28 Jul", focus: "Brand + landing pages. Build Lane E and D masters (4 video, 4 static) and lock the template system.", target: "Lock the system" },
+    { day: "Day 2 — 29 Jul", focus: "Lane J and C masters, then derive Lane E + D variants and GBP.", target: "Masters done" },
+    { day: "Day 3 — 30 Jul", focus: "Lane B masters, Lane A brand-awareness videos, remaining derivatives, all GBP, exports and handover.", target: "Lane A + remaining" },
   ],
   done: [
     "All three crops exported and readable in each",
@@ -259,10 +279,3 @@ export function briefTotals(b: DesignerBrief) {
   };
 }
 
-/** Planned hours from the master/variant split — keeps the brief honest. */
-export function briefHours(b: DesignerBrief): number {
-  const h = b.lanes
-    .flatMap((l) => l.concepts)
-    .reduce((n, c) => n + c.count * (RATE[c.kind]?.[c.tier] ?? 0), 0);
-  return Math.round(h * 10) / 10;
-}

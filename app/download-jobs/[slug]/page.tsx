@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { JOBS_PACK_COOKIE, verifyPackToken } from "@/lib/jobsPack";
-import { designerBrief, briefTotals, briefHours } from "@/lib/designerBriefs";
+import { designerBrief, briefTotals } from "@/lib/designerBriefs";
 import JobsPackLogin from "../JobsPackLogin";
 import DeliveryUpload from "./DeliveryUpload";
 
@@ -26,8 +26,6 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
   if (!(await verifyPackToken(token))) return <JobsPackLogin />;
 
   const t = briefTotals(brief);
-  const planned = briefHours(brief);
-  const over = planned >= brief.hours;
   const folders = [...brief.lanes.map((l) => `Lane-${l.key}`), "_source"];
 
   return (
@@ -66,26 +64,7 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
             </div>
             <div className="small muted">masters + variants</div>
           </div>
-          <div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: over ? "#b45309" : undefined }}>
-              ~{planned}
-              <span style={{ fontSize: 16, fontWeight: 400 }}> / {brief.hours}h</span>
-            </div>
-            <div className="small muted">planned vs available</div>
-          </div>
         </div>
-        {over ? (
-          <p className="notice small" style={{ marginTop: 12, marginBottom: 0, borderLeftColor: "#b45309" }}>
-            <strong>This is a full sprint with no slack.</strong> The plan is ~{planned}h of production
-            against {brief.hours}h available, so brand familiarisation, revisions and exports have to come
-            out of the same budget. Build the masters first and cut derivatives from the bottom of the
-            lane order (B, then C) if the days run short — a weak master costs more than a missing variant.
-          </p>
-        ) : (
-          <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
-            Leaves ~{(brief.hours - planned).toFixed(1)} hours for brand familiarisation, revisions and exports.
-          </p>
-        )}
       </div>
 
       <div className="card" style={{ marginTop: 12 }}>
@@ -102,26 +81,6 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
           {p}
         </p>
       ))}
-
-      <div className="card" style={{ marginTop: 8 }}>
-        <strong className="small">Planning assumption per concept</strong>
-        <table style={{ marginTop: 8 }}>
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Time each</th>
-            </tr>
-          </thead>
-          <tbody>
-            {brief.rates.map((r) => (
-              <tr key={r.type}>
-                <td className="small">{r.type}</td>
-                <td className="small">{r.each}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
 
       <h2>The work — by lane</h2>
       {brief.lanes.map((l, i) => (
