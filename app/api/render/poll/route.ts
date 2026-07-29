@@ -12,7 +12,7 @@ import {
   renderCaptionPng, overlayCaption, concatVideosXfade, assembleVoiceTrack,
   muxVoiceAndMusic, mediaDuration, buildKenBurnsClip, gradeClip, normalizeMotion, extractAudioTrack, overlayTimedCaptions, buildStudioChannel,
 } from "@/lib/montage";
-import { loadLogoBuffer } from "@/lib/finish";
+import { loadLogoForOverlay } from "@/lib/finish";
 import { reelStyle } from "@/lib/reelStyles";
 import { assertSpeakerConsent } from "@/lib/talking";
 import { parseBrief } from "@/lib/context";
@@ -750,7 +750,7 @@ async function maybeFinishStudio(job: Job) {
     if (logoOpts.logoEnabled && logoOpts.logoPath) {
       try {
         logoLocal = join(dir, `logo-${uid}.png`);
-        await writeFile(logoLocal, await loadLogoBuffer(logoOpts.logoPath));
+        await writeFile(logoLocal, await loadLogoForOverlay(logoOpts.logoPath));
       } catch {
         logoLocal = null;
       }

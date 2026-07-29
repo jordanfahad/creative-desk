@@ -4,7 +4,7 @@ import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import ffmpegStatic from "ffmpeg-static";
-import { loadLogoBuffer, type FinishOpts } from "./finish";
+import { loadLogoForOverlay, type FinishOpts } from "./finish";
 
 // Deterministic VIDEO finishing via ffmpeg: cover-scale + crop to the exact
 // platform dimensions, composite the brand logo at a corner, preserve audio.
@@ -46,7 +46,8 @@ export async function finishVideo(
     try {
       if (/^https?:\/\//.test(opts.logoPath)) {
         tempLogo = join(tmpdir(), `cd-logo-${randomUUID().slice(0, 8)}.png`);
-        await writeFile(tempLogo, await loadLogoBuffer(opts.logoPath));
+        // halo-backed logo so it reads on bright AND dark footage
+        await writeFile(tempLogo, await loadLogoForOverlay(opts.logoPath));
         localLogo = tempLogo;
       } else {
         localLogo = resolve(opts.logoPath);
