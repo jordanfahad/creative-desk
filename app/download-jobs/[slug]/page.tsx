@@ -27,6 +27,7 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
 
   const t = briefTotals(brief);
   const planned = briefHours(brief);
+  const over = planned >= brief.hours;
   const folders = [...brief.lanes.map((l) => `Lane-${l.key}`), "_source"];
 
   return (
@@ -44,7 +45,7 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
         <div className="row" style={{ gap: 28, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 30, fontWeight: 700 }}>{t.total}</div>
-            <div className="small muted">unique concepts</div>
+            <div className="small muted">deliverables</div>
           </div>
           <div>
             <div style={{ fontSize: 30, fontWeight: 700 }}>{t.video}</div>
@@ -56,19 +57,44 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
           </div>
           <div>
             <div style={{ fontSize: 30, fontWeight: 700 }}>{t.gbp}</div>
-            <div className="small muted">GBP posts</div>
+            <div className="small muted">GBP · {brief.clinics.length} clinics</div>
           </div>
           <div>
             <div style={{ fontSize: 30, fontWeight: 700 }}>
+              {t.masters}
+              <span style={{ fontSize: 16, fontWeight: 400 }}> + {t.variants}</span>
+            </div>
+            <div className="small muted">masters + variants</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 30, fontWeight: 700, color: over ? "#b45309" : undefined }}>
               ~{planned}
               <span style={{ fontSize: 16, fontWeight: 400 }}> / {brief.hours}h</span>
             </div>
             <div className="small muted">planned vs available</div>
           </div>
         </div>
-        <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
-          Leaves ~{brief.hours - planned} hours for brand familiarisation on day 1, revisions and final exports.
-        </p>
+        {over ? (
+          <p className="notice small" style={{ marginTop: 12, marginBottom: 0, borderLeftColor: "#b45309" }}>
+            <strong>This is a full sprint with no slack.</strong> The plan is ~{planned}h of production
+            against {brief.hours}h available, so brand familiarisation, revisions and exports have to come
+            out of the same budget. Build the masters first and cut derivatives from the bottom of the
+            lane order (B, then C) if the days run short — a weak master costs more than a missing variant.
+          </p>
+        ) : (
+          <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
+            Leaves ~{(brief.hours - planned).toFixed(1)} hours for brand familiarisation, revisions and exports.
+          </p>
+        )}
+      </div>
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <strong className="small">Clinics — every lane ships one GBP post per clinic</strong>
+        <ul className="small muted" style={{ marginTop: 6, marginBottom: 0 }}>
+          {brief.clinics.map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
       </div>
 
       {brief.intro.map((p, i) => (
@@ -120,6 +146,7 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
               <tr>
                 <th>Ref</th>
                 <th>Type</th>
+                <th>#</th>
                 <th>Concept</th>
               </tr>
             </thead>
@@ -127,7 +154,14 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
               {l.concepts.map((c) => (
                 <tr key={c.ref}>
                   <td className="small muted">{c.ref}</td>
-                  <td className="small">{KIND_LABEL[c.kind]}</td>
+                  <td className="small">
+                    {KIND_LABEL[c.kind]}
+                    <br />
+                    <span className={`badge ${c.tier === "master" ? "done" : ""}`} style={{ fontSize: 11 }}>
+                      {c.tier}
+                    </span>
+                  </td>
+                  <td className="small">{c.count}</td>
                   <td className="small">
                     <strong>{c.title}</strong>
                     {c.note ? <span className="muted"> — {c.note}</span> : null}
@@ -136,6 +170,13 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
               ))}
             </tbody>
           </table>
+          <p className="small muted" style={{ marginTop: 6, marginBottom: 0 }}>
+            Lane total:{" "}
+            {l.concepts.reduce((n, c) => n + c.count, 0)} deliverables (
+            {l.concepts.filter((c) => c.kind === "video").reduce((n, c) => n + c.count, 0)} video ·{" "}
+            {l.concepts.filter((c) => c.kind === "static").reduce((n, c) => n + c.count, 0)} static ·{" "}
+            {l.concepts.filter((c) => c.kind === "gbp").reduce((n, c) => n + c.count, 0)} GBP)
+          </p>
         </div>
       ))}
 
