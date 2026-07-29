@@ -38,6 +38,17 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
         {brief.dates} · {brief.channels} · <strong>{brief.bias}</strong>
       </p>
 
+      {/* The instruction that outranks everything else on the page. */}
+      <div
+        className="card"
+        style={{ marginTop: 16, borderLeft: "4px solid var(--accent, #2f6f4f)", background: "var(--card, #fff)" }}
+      >
+        <h3 style={{ marginTop: 0, marginBottom: 6 }}>▶ {brief.startHere.title}</h3>
+        <p className="small" style={{ marginTop: 0, marginBottom: 0 }}>
+          {brief.startHere.body}
+        </p>
+      </div>
+
       {/* headline numbers */}
       <div className="card" style={{ marginTop: 16 }}>
         <div className="row" style={{ gap: 28, flexWrap: "wrap" }}>

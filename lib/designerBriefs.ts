@@ -38,6 +38,8 @@ export interface DesignerBrief {
   clinics: string[];
   /** Kit is split across two sites — worth knowing before a shoot day. */
   equipment: Array<{ item: string; location: string; note: string }>;
+  /** The one instruction that outranks the rest, shown first. */
+  startHere: { title: string; body: string };
   intro: string[];
   lanes: BriefLane[];
   specs: string[];
@@ -127,6 +129,11 @@ const HASHID: DesignerBrief = {
       note: "Held at a different site to the camera — pick both up before a shoot day rather than mid-session.",
     },
   ],
+  startHere: {
+    title: "Shoot first. Edit later.",
+    body:
+      "Get the camera rolling on day 1, before anything else. Filming is the only part of this sprint that depends on things you do not control — clinic rooms being free, doctors and staff being available, daylight, and kit that lives on two different sites. Editing, statics, GBP posts and AI-generated work can all be done later, alone, at any hour. So capture everything you could possibly need while you have access: the treatment rooms, reception, the doctors, hands and instruments, and plenty of loose B-roll beyond the shot list. Coming back for a missed shot costs a day; over-shooting costs an hour.",
+  },
   intro: [
     "Work as a SYSTEM, not as a list of unrelated ideas. Build a small number of MASTERS properly, then derive the rest: per lane, 2 video masters + 4 derivative cuts, 2 static masters + 6 variants, and 1 GBP post per clinic. A derivative is a hook swap, a clinic-tagged version, a cutdown or an Arabic version — not a new idea from scratch.",
     "Ratio crops (9:16 / 1:1 / 4:5) are exports, not deliverables — they are expected with every concept and are not counted.",
@@ -253,9 +260,9 @@ const HASHID: DesignerBrief = {
     "Generate freely with your own AI stack (Seedance, Higgsfield, etc.) — especially for Lane A. Brand-safe means no medical claims, no before/after promises, no unnaturally white teeth, and the real logo only (never an AI-drawn one)",
   ],
   schedule: [
-    { day: "Day 1 — 28 Jul", focus: "Brand + landing pages. Build Lane E and D masters (4 video, 4 static) and lock the template system.", target: "Lock the system" },
-    { day: "Day 2 — 29 Jul", focus: "Lane J and C masters, then derive Lane E + D variants and GBP.", target: "Masters done" },
-    { day: "Day 3 — 30 Jul", focus: "Lane B masters, Lane A brand-awareness videos, remaining derivatives, all GBP, exports and handover.", target: "Lane A + remaining" },
+    { day: "Day 1 — 28 Jul", focus: "SHOOT. Collect the kit, review the brand + landing pages fast, then film everything across the clinics — Lane E and D first, plus wide B-roll coverage for every other lane.", target: "All footage captured" },
+    { day: "Day 2 — 29 Jul", focus: "Any remaining pickup shots in the morning while access is still open, then cut the video masters (E, D, J, C, B).", target: "Video masters cut" },
+    { day: "Day 3 — 30 Jul", focus: "Desk work only — Lane A brand-awareness videos (AI), statics, all GBP posts, derivatives, exports and handover.", target: "Everything else" },
   ],
   done: [
     "All three crops exported and readable in each",
