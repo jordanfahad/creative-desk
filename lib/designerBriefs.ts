@@ -36,6 +36,8 @@ export interface DesignerBrief {
   bias: string;
   uploadPrefix: string;
   clinics: string[];
+  /** Kit is split across two sites — worth knowing before a shoot day. */
+  equipment: Array<{ item: string; location: string; note: string }>;
   intro: string[];
   lanes: BriefLane[];
   specs: string[];
@@ -113,6 +115,18 @@ const HASHID: DesignerBrief = {
   bias: "Video-heavy",
   uploadPrefix: "deliveries/Hashid_2026-07-28",
   clinics: CLINICS,
+  equipment: [
+    {
+      item: "Camera",
+      location: "Dental Nation Al Wasl — Vital room",
+      note: "Collect it yourself; no need to arrange handover.",
+    },
+    {
+      item: "Lights and tripod",
+      location: "Al Maher Clinic",
+      note: "Held at a different site to the camera — pick both up before a shoot day rather than mid-session.",
+    },
+  ],
   intro: [
     "Work as a SYSTEM, not as a list of unrelated ideas. Build a small number of MASTERS properly, then derive the rest: per lane, 2 video masters + 4 derivative cuts, 2 static masters + 6 variants, and 1 GBP post per clinic. A derivative is a hook swap, a clinic-tagged version, a cutdown or an Arabic version — not a new idea from scratch.",
     "Ratio crops (9:16 / 1:1 / 4:5) are exports, not deliverables — they are expected with every concept and are not counted.",

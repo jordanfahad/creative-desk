@@ -67,13 +67,27 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: 12 }}>
-        <strong className="small">Clinics — every lane ships one GBP post per clinic</strong>
-        <ul className="small muted" style={{ marginTop: 6, marginBottom: 0 }}>
-          {brief.clinics.map((c) => (
-            <li key={c}>{c}</li>
-          ))}
-        </ul>
+      <div className="grid cols-2" style={{ marginTop: 12 }}>
+        <div className="card">
+          <strong className="small">Clinics — every lane ships one GBP post per clinic</strong>
+          <ul className="small muted" style={{ marginTop: 6, marginBottom: 0 }}>
+            {brief.clinics.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="card">
+          <strong className="small">Kit — it lives on two sites</strong>
+          <ul className="small" style={{ marginTop: 6, marginBottom: 0 }}>
+            {brief.equipment.map((e) => (
+              <li key={e.item} style={{ marginBottom: 4 }}>
+                <strong>{e.item}</strong> — {e.location}
+                <br />
+                <span className="muted">{e.note}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
 
       {brief.intro.map((p, i) => (
