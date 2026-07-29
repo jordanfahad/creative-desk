@@ -24,7 +24,7 @@ export async function middleware(req: NextRequest) {
   // The external Creative Jobs Pack has its OWN password gate (lib/jobsPack +
   // /api/jobs-pack), so it's exempt from the main login gate — external hires
   // (designers, marketers, creative directors) never hit the internal sign-in.
-  if (pathname === "/download-jobs" || pathname.startsWith("/api/jobs-pack")) {
+  if (pathname === "/download-jobs" || pathname.startsWith("/download-jobs/") || pathname.startsWith("/api/jobs-pack")) {
     return passthrough();
   }
 
