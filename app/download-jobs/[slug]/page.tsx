@@ -8,12 +8,12 @@ import DeliveryUpload from "./DeliveryUpload";
 
 export const dynamic = "force-dynamic";
 
-const KIND_LABEL: Record<string, string> = { video: "Video", static: "Static", gbp: "GBP post" };
+const KIND_LABEL: Record<string, string> = { video: "Video", static: "Static", gbp: "GBP post", pmax: "PMax asset" };
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const b = designerBrief(slug);
-  return { title: b ? `${b.name} · Creative sprint brief` : "Creative sprint brief" };
+  return { title: b ? `${b.name} · ${b.role}` : "Creative brief" };
 }
 
 export default async function DesignerBriefPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -33,7 +33,7 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
       <p className="small muted" style={{ marginBottom: 4 }}>
         <Link href="/download-jobs">← Brand kit, briefs &amp; guidelines</Link>
       </p>
-      <h1 style={{ marginBottom: 4 }}>{brief.name} — creative sprint</h1>
+      <h1 style={{ marginBottom: 4 }}>{brief.name} — {brief.role}</h1>
       <p className="muted" style={{ marginTop: 0 }}>
         {brief.dates} · {brief.channels} · <strong>{brief.bias}</strong>
       </p>
@@ -68,6 +68,12 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
             <div style={{ fontSize: 30, fontWeight: 700 }}>{t.gbp}</div>
             <div className="small muted">GBP · {brief.clinics.length} clinics</div>
           </div>
+          {t.pmax > 0 ? (
+            <div>
+              <div style={{ fontSize: 30, fontWeight: 700 }}>{t.pmax}</div>
+              <div className="small muted">PMax assets</div>
+            </div>
+          ) : null}
           <div>
             <div style={{ fontSize: 30, fontWeight: 700 }}>
               {t.masters}
@@ -159,7 +165,8 @@ export default async function DesignerBriefPage({ params }: { params: Promise<{ 
             {l.concepts.reduce((n, c) => n + c.count, 0)} deliverables (
             {l.concepts.filter((c) => c.kind === "video").reduce((n, c) => n + c.count, 0)} video ·{" "}
             {l.concepts.filter((c) => c.kind === "static").reduce((n, c) => n + c.count, 0)} static ·{" "}
-            {l.concepts.filter((c) => c.kind === "gbp").reduce((n, c) => n + c.count, 0)} GBP)
+            {l.concepts.filter((c) => c.kind === "gbp").reduce((n, c) => n + c.count, 0)} GBP ·{" "}
+            {l.concepts.filter((c) => c.kind === "pmax").reduce((n, c) => n + c.count, 0)} PMax)
           </p>
         </div>
       ))}

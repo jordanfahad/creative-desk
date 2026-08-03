@@ -1,18 +1,19 @@
-// Per-designer sprint briefs shown at /download-jobs/<slug>.
+// Per-designer briefs shown at /download-jobs/<slug>.
 // Kept in the repo (not the DB) deliberately: a brief is a versioned artefact —
 // it should be reviewable in a diff and travel with the deploy that created it.
+// (The 3-day trial sprint this page previously carried lives in git history.)
 //
-// VOLUME MODEL. A sprint this size only works as a SYSTEM, not as dozens of
-// unrelated ideas: a small number of MASTERS (designed from scratch) and many
-// VARIANTS derived from them (per clinic, per offer, per language, per cutdown).
-// Totals are computed from the concept list, so the page always reflects the
-// actual brief rather than a number someone typed.
+// VOLUME MODEL. Work only scales as a SYSTEM, not as dozens of unrelated
+// ideas: a small number of MASTERS (designed from scratch) and many VARIANTS
+// derived from them (per clinic, per offer, per language, per cutdown, per
+// placement). Totals are computed from the concept list, so the page always
+// reflects the actual brief rather than a number someone typed.
 
 export type Tier = "master" | "variant";
 
 export interface BriefConcept {
   ref: string;
-  kind: "video" | "static" | "gbp";
+  kind: "video" | "static" | "gbp" | "pmax";
   tier: Tier;
   title: string;
   note: string;
@@ -31,6 +32,8 @@ export interface BriefLane {
 export interface DesignerBrief {
   slug: string;
   name: string;
+  /** Page heading suffix, e.g. "creative sprint" or "BAU creative brief". */
+  role: string;
   dates: string;
   channels: string;
   bias: string;
@@ -51,8 +54,14 @@ export interface DesignerBrief {
 
 const CLINICS = ["Dental Nation Al Wasl", "Dr Tosun Dental Clinic", "Al Maher Clinic"];
 
-/** Every lane follows the same shape, so the system is learnable in one pass. */
-function lane(
+/**
+ * A BAU LAUNCH lane: everything one offer needs to go live on organic, paid
+ * social AND Google Performance Max at the same time. Same shape per lane so
+ * the system is learnable in one pass:
+ *   2 video masters + 4 derivative cuts · 2 static masters + 6 variants ·
+ *   1 GBP post per clinic · the full PMax asset group (8 images + 3 videos).
+ */
+function launchLane(
   key: string,
   name: string,
   offer: string,
@@ -106,16 +115,37 @@ function lane(
     note: "One per clinic — clinic name, address line and its own booking action.",
     count: 3,
   });
+  // Google Performance Max asset group. Without a complete set the campaign
+  // either cannot serve or Google auto-generates the gaps (badly) — so the
+  // asset group is a DELIVERABLE, not an export.
+  concepts.push({
+    ref: `${key}-P1`,
+    kind: "pmax",
+    tier: "variant",
+    title: "PMax image set — 3 landscape · 3 square · 2 portrait",
+    note:
+      "Derived from the static masters, but CLEAN: no price/CTA text baked in (Google crops freely and overlays its own text). 1200×628, 1200×1200, 960×1200.",
+    count: 8,
+  });
+  concepts.push({
+    ref: `${key}-P2`,
+    kind: "pmax",
+    tier: "variant",
+    title: "PMax video trio — 16:9 · 9:16 · 1:1, each ≥10s",
+    note: "Cutdowns of the lane's video masters. If we don't supply these, Google auto-generates them from stills — always supply.",
+    count: 3,
+  });
   return { key, name, offer, landing, priority, direction, concepts };
 }
 
 const HASHID: DesignerBrief = {
   slug: "hashid",
   name: "Hashid",
-  dates: "28–30 July 2026 (3 days)",
-  channels: "Social organic · Social paid · Google Business Profile",
-  bias: "Video-heavy",
-  uploadPrefix: "deliveries/Hashid_2026-07-28",
+  role: "BAU creative brief",
+  dates: "From 2 August 2026 — ongoing (weekly drops)",
+  channels: "Social organic · Paid social (Meta) · Paid search (Google Performance Max) · GBP",
+  bias: "Launch-first: Lanes E, B and D ship together",
+  uploadPrefix: "deliveries/Hashid_BAU_2026-08",
   clinics: CLINICS,
   equipment: [
     {
@@ -130,35 +160,74 @@ const HASHID: DesignerBrief = {
     },
   ],
   startHere: {
-    title: "Shoot first. Edit later.",
+    title: "Trial cleared — welcome aboard. First job: the E · B · D launch set.",
     body:
-      "Get the camera rolling on day 1, before anything else. Filming is the only part of this sprint that depends on things you do not control — clinic rooms being free, doctors and staff being available, daylight, and kit that lives on two different sites. Editing, statics, GBP posts and AI-generated work can all be done later, alone, at any hour. So capture everything you could possibly need while you have access: the treatment rooms, reception, the doctors, hands and instruments, and plenty of loose B-roll beyond the shot list. Coming back for a missed shot costs a day; over-shooting costs an hour.",
+      "The sprint is done and you're through the interview — this page is now your standing BAU brief. Three offers launch SIMULTANEOUSLY: Lane E (Glow Up), Lane B (First Look) and Lane D (SOS), each across organic, paid social and Google Performance Max. Paid comes first: neither Meta nor PMax can go live until a lane's full asset set exists, so the launch set outranks everything else. Reuse your sprint footage wherever it serves — reshoot only what's missing — and keep the sprint rule: anything that needs clinic access gets filmed early, everything else is desk work.",
   },
   intro: [
-    "Work as a SYSTEM, not as a list of unrelated ideas. Build a small number of MASTERS properly, then derive the rest: per lane, 2 video masters + 4 derivative cuts, 2 static masters + 6 variants, and 1 GBP post per clinic. A derivative is a hook swap, a clinic-tagged version, a cutdown or an Arabic version — not a new idea from scratch.",
-    "Ratio crops (9:16 / 1:1 / 4:5) are exports, not deliverables — they are expected with every concept and are not counted.",
-    "Every OFFER deliverable must state the offer, the price and one clear action. Recent paid leads converted badly — many were wrong or unreachable contacts — so creative should QUALIFY rather than maximise clicks: be explicit about what the offer is, what it costs and which clinic it is at.",
-    "Lanes are ordered by live paid spend: E, D and J carry the ArabyAds campaign and come first. C and B support them. Lane A (brand awareness) is separate — it carries no price and exists to be shared.",
+    "Work as a SYSTEM, not as a list of unrelated ideas. Per launch lane: 2 video masters + 4 derivative cuts, 2 static masters + 6 variants, 1 GBP post per clinic, and the full PMax asset group (8 clean images + 3 video cutdowns). A derivative is a hook swap, a clinic-tagged version, a cutdown or an Arabic version — not a new idea from scratch.",
+    "Ratio crops (9:16 / 1:1 / 4:5) are exports, not deliverables — they are expected with every concept and are not counted. The PMax set is the exception: it IS counted, because a campaign cannot serve without it.",
+    "Every OFFER deliverable must state the offer, the price and one clear action. Paid leads convert badly when the click was misled — creative should QUALIFY rather than maximise clicks: be explicit about what the offer is, what it costs and which clinic it is at. PMax images are the one place price text does NOT belong (Google overlays its own).",
+    "After the launch set ships, the standing rhythm is Lane A: the weekly organic engine — at least 5 organic posts a week across the clinics' channels, fed from your masters, derivatives and AI stack.",
   ],
   lanes: [
-    // Brand awareness sits OUTSIDE the offer system: no price, no lane template.
-    // Its whole job is to be shared — DM shares are the number one Instagram
-    // ranking signal, and a share reaches people paid never touches.
+    launchLane(
+      "E", "Glow Up (whitening)", "The DN Glow Up — from AED 1,699",
+      "https://www.dentalnation.com/en/glow-up", "Launch — paid + organic + PMax",
+      "Highest-value offer. Lead with the visible outcome.",
+      [
+        ["Before/after transformation", "Close-up, natural light. The result is the hook. Sprint footage covers this — recut, don't reshoot."],
+        ["What actually happens in a Glow Up", "The session step by step — demystifies and reassures."],
+      ],
+      {
+        video: "Couples angle (AED 2,999), 15s cutdown of each master, one clinic-tagged version per clinic, and an Arabic caption version.",
+        static: "One per clinic, a couples-offer version, a price-anchor version and an Arabic version.",
+      },
+    ),
+    launchLane(
+      "B", "First Look (new patient)", "The DN First Look — from AED 799",
+      "https://www.dentalnation.com/en/first-look", "Launch — paid + organic + PMax",
+      "The welcome offer, promoted properly for the first time. Warm, low-anxiety — this is most people's first ad from us, so it sets the tone.",
+      [
+        ["First visit walkthrough", "What to expect — anxiety-reducing."],
+        ["What's included at AED 799", "Itemised, concrete."],
+      ],
+      {
+        video: "Nervous-patient angle, 15s cutdowns, clinic-tagged versions, Arabic version.",
+        static: "Welcome visual per clinic, what's-included version, Arabic version.",
+      },
+    ),
+    launchLane(
+      "D", "SOS (emergency)", "DN SOS — Seen in 60 — from AED 699",
+      "https://www.dentalnation.com/en/sos", "Launch — paid + organic + PMax",
+      "Urgency and reassurance. Same-day care is the hook.",
+      [
+        ["“Seen in 60” — the promise", "Timer-led and unambiguous."],
+        ["Pain-relief reassurance", "Calm tone — what to do right now."],
+      ],
+      {
+        video: "After-hours/weekend version, 15s cutdowns, a clinic-tagged version per clinic, Arabic version.",
+        static: "Emergency card per clinic (phone + WhatsApp prominent), after-hours version, Arabic version.",
+      },
+    ),
+    // The ongoing organic engine sits OUTSIDE the offer system: no price, no
+    // lane template. Its job is reach and shares — and it feeds the ≥5
+    // posts/week organic cadence that continues every week after launch.
     {
       key: "A",
-      name: "Brand awareness — viral / trending",
+      name: "Organic BAU — brand awareness & weekly cadence",
       offer: "No price, no hard CTA — Dental Nation (Al Wasl, main branch)",
       landing: "https://www.dentalnation.com/en",
-      priority: "Organic — reach & shares",
+      priority: "Ongoing — ≥5 organic posts/week",
       direction:
-        "Trend-native, scroll-stopping, made to be SENT to a friend. No offer, no price, no hard sell — just the brand being worth watching. Generate freely with your own AI stack (Seedance, Higgsfield, etc.); brand-safe means no medical claims, no before/after promises, no unnatural teeth. Close on the brand mark only.",
+        "Trend-native, scroll-stopping, made to be SENT to a friend. No offer, no price, no hard sell. Generate freely with your own AI stack (Seedance, Higgsfield, etc.); brand-safe means no medical claims, no before/after promises, no unnatural teeth. Close on the brand mark only. This lane never ends: it is the weekly posting engine.",
       concepts: [
         {
           ref: "A-V1",
           kind: "video",
           tier: "master",
           title: "ASMR / satisfying macro",
-          note: "Extreme close-ups, glossy textures, no talking — built for sound-on and for looping. The existing DN SOS macro stills (tooth-in-locket, egg-crack, candle) are exactly this register and are in the pack.",
+          note: "Extreme close-ups, glossy textures, no talking — built for sound-on and for looping. The DN SOS macro stills register (tooth-in-locket, egg-crack, candle) is the reference.",
           count: 1,
         },
         {
@@ -174,106 +243,69 @@ const HASHID: DesignerBrief = {
           kind: "video",
           tier: "master",
           title: "Surreal brand film",
-          note: "One striking visual metaphor for confidence, cinematic and strange enough to stop a scroll. Hero piece — treat it as the brand's calling card.",
+          note: "One striking visual metaphor for confidence, cinematic and strange enough to stop a scroll. Hero piece — the brand's calling card.",
           count: 1,
+        },
+        {
+          ref: "A-Wk",
+          kind: "video",
+          tier: "variant",
+          title: "Weekly cadence — first fortnight's reels",
+          note: "First two weeks of the standing ≥5 posts/week rhythm: trend rides, clinic moments, cutdowns of the launch masters. Volume shown here is the first drop only — the cadence continues every week.",
+          count: 4,
         },
       ],
     },
-    lane(
-      "E", "Glow Up (whitening)", "The DN Glow Up — from AED 1,699",
-      "https://www.dentalnation.com/en/glow-up", "Paid — highest value",
-      "Highest-value offer. Lead with the visible outcome.",
-      [
-        ["Before/after transformation", "Close-up, natural light. The result is the hook."],
-        ["What actually happens in a Glow Up", "The session step by step — demystifies and reassures."],
-      ],
-      {
-        video: "Couples angle (AED 2,999), 15s cutdown of each master, one clinic-tagged version per clinic, and an Arabic caption version.",
-        static: "One per clinic, a couples-offer version, a price-anchor version and an Arabic version.",
-      },
-    ),
-    lane(
-      "D", "SOS (emergency)", "DN SOS — Seen in 60 — from AED 699",
-      "https://www.dentalnation.com/en/sos", "Paid",
-      "Urgency and reassurance. Same-day care is the hook.",
-      [
-        ["“Seen in 60” — the promise", "Timer-led and unambiguous."],
-        ["Pain-relief reassurance", "Calm tone — what to do right now."],
-      ],
-      {
-        video: "After-hours/weekend version, 15s cutdowns, a clinic-tagged version per clinic, Arabic version.",
-        static: "Emergency card per clinic (phone + WhatsApp prominent), after-hours version, Arabic version.",
-      },
-    ),
-    lane(
-      "J", "Scan (orthodontics)", "The DN Scan — from AED 499",
-      "https://www.dentalnation.com/en/scan", "Paid",
-      "Low-commitment entry point. Curiosity-led.",
-      [
-        ["What the scan shows you", "Screen-capture feel."],
-        ["“Am I a candidate for aligners?”", "Quick-answer format."],
-      ],
-      {
-        video: "Price-anchored cut (AED 499 vs doing nothing), 15s cutdowns, clinic-tagged versions, Arabic version.",
-        static: "Scan visual per clinic, price-anchor version, candidate-check version, Arabic version.",
-      },
-    ),
-    lane(
-      "C", "Restore (implants / restorative)", "The DN Plan — complimentary (valued AED 899)",
-      "https://www.dentalnation.com/en/care-journeys/restore", "Organic / supporting",
-      "Higher consideration. Trust and expertise over urgency.",
-      [
-        ["The DN Plan explained", "What a complimentary consult includes."],
-        ["Restorative journey", "Patient-story framing."],
-      ],
-      {
-        video: "Doctor-led credibility cut, 15s cutdowns, clinic-tagged versions, Arabic version.",
-        static: "Plan-value visual per clinic, doctor-credibility version, Arabic version.",
-      },
-    ),
-    lane(
-      "B", "First Look (new patient)", "The DN First Look — from AED 799",
-      "https://www.dentalnation.com/en/first-look", "Organic / supporting",
-      "Welcome offer. Warm, low-anxiety.",
-      [
-        ["First visit walkthrough", "What to expect — anxiety-reducing."],
-        ["What's included at AED 799", "Itemised, concrete."],
-      ],
-      {
-        video: "Nervous-patient angle, 15s cutdowns, clinic-tagged versions, Arabic version.",
-        static: "Welcome visual per clinic, what's-included version, Arabic version.",
-      },
-    ),
   ],
   specs: [
     "VIDEO — deliver each as 9:16 (1080×1920, master) + 1:1 (1080×1080) + 4:5 (1080×1350)",
     "STATIC — deliver as 1:1, 4:5 and 1200×628",
     "GBP — 1200×900 (4:3) plus a 1:1 crop",
+    "PMAX images — 1.91:1 (1200×628) ×3 · 1:1 (1200×1200) ×3 · 4:5 (960×1200) ×2 per lane, CLEAN (no baked-in price/CTA text; Google crops and overlays its own). Logo is in the kit.",
+    "PMAX video — 16:9, 9:16 and 1:1, each at least 10 seconds, per lane",
   ],
   rules: [
-    "Burned-in captions on EVERY video — most views are muted",
+    "Burned-in captions on EVERY social video — most views are muted (PMax cutdowns too)",
     "Music must be licensed for PAID use — platform/in-app library tracks cannot be used in ads",
     "Every clinic-tagged deliverable names the clinic it is for — this is the qualification lever",
     "Keep logo, price and CTA inside the safe areas on every crop",
+    "PMax images ship CLEAN — the priced version is for Meta/organic; the clean version is for PMax. Two exports, one design.",
     "Deliver source masters (project files + fonts + music licences) in _source/",
     "Brand kit, logos, characters and clinic photography are on the main Jobs Pack page — reuse them rather than sourcing stock",
-    "Generate freely with your own AI stack (Seedance, Higgsfield, etc.) — especially for Lane A. Brand-safe means no medical claims, no before/after promises, no unnaturally white teeth, and the real logo only (never an AI-drawn one)",
+    "Generate freely with your own AI stack — especially for Lane A. Brand-safe means no medical claims, no before/after promises, no unnaturally white teeth, and the real logo only (never an AI-drawn one)",
   ],
   schedule: [
-    { day: "Day 1 — 28 Jul", focus: "SHOOT. Collect the kit, review the brand + landing pages fast, then film everything across the clinics — Lane E and D first, plus wide B-roll coverage for every other lane.", target: "All footage captured" },
-    { day: "Day 2 — 29 Jul", focus: "Any remaining pickup shots in the morning while access is still open, then cut the video masters (E, D, J, C, B).", target: "Video masters cut" },
-    { day: "Day 3 — 30 Jul", focus: "Desk work only — Lane A brand-awareness videos (AI), statics, all GBP posts, derivatives, exports and handover.", target: "Everything else" },
+    {
+      day: "Week 1 — 2–8 Aug",
+      focus:
+        "THE LAUNCH SET. Lanes E, B and D complete: paid social + PMax asset groups first (nothing can go live without them), then statics and GBP. Any missing footage gets shot early in the week while clinic access is easy.",
+      target: "E · B · D asset sets delivered — campaigns can launch",
+    },
+    {
+      day: "Week 2 — 9–15 Aug",
+      focus:
+        "Organic engine on. Lane A masters + the weekly cadence starts (≥5 posts/week). First performance read on the launch lanes → refresh the weakest paid variant per lane.",
+      target: "Cadence running · first variant refresh",
+    },
+    {
+      day: "Ongoing — every week",
+      focus:
+        "≥5 organic posts across channels · refresh the worst-performing paid variant per live lane · monthly GBP refresh per clinic. Weekly drop lands every Friday in the delivery folders below.",
+      target: "Friday drops, every week",
+    },
   ],
   done: [
-    "All three crops exported and readable in each",
+    "Every launch lane's PMax asset group is COMPLETE: 3 landscape + 3 square + 2 portrait clean images, 3 videos ≥10s — no gaps for Google to auto-fill",
+    "All social crops exported and readable in each",
     "Captions burned in and correct",
     "Music cleared for paid use",
-    "Price, offer, clinic and CTA legible on mobile",
+    "Price, offer, clinic and CTA legible on mobile (social versions); PMax versions clean of baked-in text",
     "Files follow the naming convention and sit in the right lane folder",
     "Source masters included in _source/",
   ],
   reference: [
     "Live offers — https://www.dentalnation.com/en (Signature offers section)",
+    "Launch landing pages — /en/glow-up · /en/first-look · /en/sos",
     `Clinics — ${CLINICS.join(" · ")}`,
     "Phone — +971 55 277 2311 (WhatsApp available)",
     "Brand kit, founder briefs, logos and guidelines — on the main Jobs Pack page",
@@ -295,8 +327,8 @@ export function briefTotals(b: DesignerBrief) {
     video: sum("video"),
     static: sum("static"),
     gbp: sum("gbp"),
+    pmax: sum("pmax"),
     masters: all.filter((c) => c.tier === "master").reduce((n, c) => n + c.count, 0),
     variants: all.filter((c) => c.tier === "variant").reduce((n, c) => n + c.count, 0),
   };
 }
-
