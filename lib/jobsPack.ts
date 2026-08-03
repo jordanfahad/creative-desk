@@ -53,6 +53,49 @@ export async function checkPackPassword(password: string): Promise<boolean> {
   return safeEqual(got, await expectedHash());
 }
 
+// ── Passwordless share link ─────────────────────────────────────────────────
+//
+// A second, independent way in: `/download-jobs?access=<token>` unlocks the
+// pack with no password prompt, then strips the token back out of the URL.
+//
+// Why it exists: the pack password is quoted to external hires, so rotating it
+// disrupts all of them. A share link is single-purpose — it can be handed to
+// one audience (the internal team, via the leave handover) and revoked on its
+// own without anyone else noticing. It also lets a document that must stay
+// credential-free still link straight through.
+//
+// Same storage discipline as the password: only the SHA-256 hash lives in the
+// repo. Rotate or kill the link with JOBS_PACK_LINK_TOKEN (plaintext) or
+// JOBS_PACK_LINK_TOKEN_SHA256 in Vercel — no code change needed.
+//
+// The grant is identical to a password sign-in: the same path-scoped,
+// HMAC-signed cookie, which unlocks the pack and nothing else.
+
+/** Query parameter carrying the share token. */
+export const JOBS_PACK_ACCESS_PARAM = "access";
+
+const DEFAULT_LINK_TOKEN_SHA256 =
+  "1d38444a15da4898e5aef2862ce2a17b8be0e91a47e50041bda14d31e2b45f53";
+
+async function expectedLinkHash(): Promise<string> {
+  const plain = process.env.JOBS_PACK_LINK_TOKEN;
+  if (plain) return sha256Hex(plain.trim());
+  return (process.env.JOBS_PACK_LINK_TOKEN_SHA256 || DEFAULT_LINK_TOKEN_SHA256).toLowerCase();
+}
+
+/**
+ * True when the `?access=` value is the configured share token.
+ *
+ * Trimmed before hashing: a token pasted out of a printed handover or a chat
+ * message routinely arrives with a trailing space or newline, and a silently
+ * dead link is the worst failure mode for a document nobody can debug.
+ */
+export async function checkPackLinkToken(token: string | undefined | null): Promise<boolean> {
+  const t = token?.trim();
+  if (!t) return false;
+  return safeEqual(await sha256Hex(t), await expectedLinkHash());
+}
+
 /** HMAC secret for the access cookie — the same server secret used elsewhere. */
 function packSecret(): string {
   return process.env.SUPABASE_SECRET_KEY || process.env.JOBS_PACK_SECRET || "";
